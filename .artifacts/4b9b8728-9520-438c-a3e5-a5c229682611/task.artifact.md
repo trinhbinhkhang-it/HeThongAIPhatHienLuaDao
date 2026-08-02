@@ -1,0 +1,3 @@
+- [x] Tạo file DocumentApp.tex với nội dung chi tiết dự án
+- [x] Xác minh nội dung tài liệu
+- [x] Hoàn tất và gửi đường dẫn cho người dùng

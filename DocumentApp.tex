@@ -1,0 +1,126 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[vietnam]{babel}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[T5]{fontenc} % <- THÊM DÒNG NÀY ĐỂ HẾT LỖI MẤT CHỮ
+\usepackage{lmodern}
+
+
+\title{\textbf{Tài liệu Dự án: VoiceShieldAI}}
+\author{Hệ thống bảo vệ giọng nói thời gian thực}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Tên Dự án}
+\textbf{VoiceShieldAI} (Lá chắn giọng nói tích hợp trí tuệ nhân tạo).
+
+\section{Mục đích dự án}
+Dự án được xây dựng nhằm mục đích cung cấp một giải pháp bảo mật âm thanh thời gian thực cho người dùng di động.
+Cụ thể, hệ thống tập trung vào việc:
+\begin{itemize}
+    \item Phát hiện các giọng nói giả mạo (\textbf{Deepfake}) trong các cuộc gọi hoặc giao tiếp âm thanh trực tiếp.
+    \item Cảnh báo người dùng ngay lập tức khi phát hiện có rủi ro lừa đảo công nghệ cao.
+    \item Đảm bảo tính riêng tư bằng cách xử lý toàn bộ dữ liệu âm thanh trực tiếp trên thiết bị (\textbf{On-device processing}) và tự động hủy dữ liệu trên RAM sau khi phân tích.
+\end{itemize}
+
+\section{Chi tiết kỹ thuật}
+Hệ thống được phát triển dựa trên kiến trúc Hybrid kết hợp giữa hiệu năng cao của C++ và tính linh hoạt của Android Native (Kotlin).
+
+\subsection{Thông số âm thanh đầu vào}
+\begin{itemize}
+    \item \textbf{Sample Rate:} 16,000 Hz (Tiêu chuẩn cho các mô hình nhận dạng giọng nói).
+    \item \textbf{Channel:} Mono (Kênh đơn).
+    \item \textbf{Format:} 16-bit PCM (Dữ liệu thô để tối ưu hóa xử lý tín hiệu).
+\end{itemize}
+
+\subsection{Công nghệ sử dụng}
+\begin{itemize}
+    \item \textbf{Ngôn ngữ lập trình:} Kotlin (Giao diện và quản lý vòng đời ứng dụng), C++ (Xử lý tín hiệu và chạy mô hình AI).
+    \item \textbf{Giao tiếp:} Java Native Interface (JNI) để truyền dữ liệu âm thanh từ tầng Kotlin xuống C++ với độ trễ cực thấp.
+    \item \textbf{AI Engine:} TensorFlow Lite C++ API tích hợp trực tiếp vào nhân hệ thống.
+    \item \textbf{Quản lý bộ nhớ:} Sử dụng cấu trúc dữ liệu \textbf{Ring Buffer} (Đệm vòng tròn) trên RAM để lưu trữ tạm thời 2-3 giây âm thanh mà không làm đầy bộ nhớ máy.
+\end{itemize}
+
+\section{Quy trình hoạt động}
+Quy trình xử lý của VoiceShieldAI diễn ra theo các bước nghiêm ngặt sau:
+
+\begin{enumerate}
+    \item \textbf{Giai đoạn Thu âm (Capture):} Ứng dụng sử dụng \texttt{AudioRecord} để bắt luồng âm thanh thực tế từ Microphone.
+    \item \textbf{Giai đoạn Đệm RAM (Buffering):} Dữ liệu PCM được đẩy xuống tầng C++ JNI và nạp vào \texttt{Ring Buffer}. Tại đây, dữ liệu cũ sẽ bị ghi đè bởi dữ liệu mới sau mỗi chu kỳ (ví dụ 2 giây).
+    \item \textbf{Xử lý tín hiệu số (DSP):} Trước khi đưa vào mô hình AI, âm thanh được lọc nhiễu và chuẩn hóa thông qua các thuật toán DSP.
+    \item \textbf{Chạy AI Inference:} Engine TensorFlow Lite sẽ phân tích các đặc trưng tần số (Spectrogram) để xác định xem giọng nói có các dấu hiệu của AI tạo ra hay không.
+    \item \textbf{Phản hồi (Feedback):} Kết quả (Score) được trả ngược về tầng Kotlin. Giao diện người dùng sẽ cập nhật trạng thái: \textbf{An toàn (Xanh)}, \textbf{Nghi vấn (Cam)} hoặc \textbf{Nguy hiểm (Đỏ)}.
+    \item \textbf{Giải phóng (Flush):} Khi người dùng dừng bảo vệ, toàn bộ vùng đệm trên RAM sẽ bị xóa sạch hoàn toàn để đảm bảo an toàn thông tin.
+\end{enumerate}
+
+\section{Lộ trình phát triển chi tiết và Tiêu chí nghiệm thu}
+
+\subsection{Giai đoạn 1: Thiết lập hạ tầng và Cấu hình nhân (Core Infrastructure)}
+\begin{itemize}
+    \item \textbf{Các bước thực hiện:}
+    \begin{enumerate}
+        \item Cấu hình \texttt{build.gradle} để hỗ trợ NDK và liên kết với \texttt{CMakeLists.txt}.
+        \item Thiết lập cấu trúc thư mục JNI chuẩn: \texttt{cpp/include} (header), \texttt{cpp/libs} (thư viện TFLite), \texttt{cpp/src} (mã nguồn).
+        \item Nhúng thư viện TensorFlow Lite JNI (\texttt{.so}) cho các kiến trúc CPU (arm64-v8a, x86\_64).
+        \item Viết boilerplate cho \texttt{native-lib.cpp} để kiểm tra việc load thư viện thành công.
+    \end{enumerate}
+    \item \textbf{Kết quả dự kiến:} Dự án biên dịch không lỗi; Logcat hiển thị thông báo ``Library loaded successfully'' khi ứng dụng khởi chạy.
+\end{itemize}
+
+\subsection{Giai đoạn 2: Phát triển luồng thu âm và Quản lý bộ nhớ đệm (Audio \& Memory Management)}
+\begin{itemize}
+    \item \textbf{Các bước thực hiện:}
+    \begin{enumerate}
+        \item Xây dựng lớp \texttt{AudioStreamController} trong Kotlin sử dụng \texttt{AudioRecord} với chế độ \texttt{VOICE\_COMMUNICATION}.
+        \item Thiết lập Coroutine (IO Dispatcher) để đọc luồng PCM 16-bit liên tục từ Microphone.
+        \item Xây dựng lớp \texttt{RingBuffer} bằng C++ để quản lý vùng nhớ đệm vòng tròn (Circular Buffer) trên RAM.
+        \item Viết hàm JNI \texttt{nativeWritePCM} để chuyển mảng \texttt{ShortArray} từ Kotlin xuống C++ một cách hiệu quả.
+    \end{enumerate}
+    \item \textbf{Kết quả dự kiến:} Luồng âm thanh được ghi vào RAM liên tục; không xảy ra hiện tượng tràn bộ nhớ hoặc rò rỉ bộ nhớ (memory leak).
+\end{itemize}
+
+\subsection{Giai đoạn 3: Tích hợp Trí tuệ nhân tạo và Xử lý tín hiệu (AI \& DSP Integration)}
+\begin{itemize}
+    \item \textbf{Các bước thực hiện:}
+    \begin{enumerate}
+        \item Xây dựng module \texttt{DSP.cpp} để chuẩn hóa âm thanh (Normalization) và cắt khung hình (Framing).
+        \item Triển khai lớp \texttt{ModelRunner.cpp} sử dụng TensorFlow Lite Interpreter để nạp mô hình \texttt{.tflite} từ thư mục \texttt{assets}.
+        \item Thiết lập cơ chế kích hoạt Inference định kỳ (ví dụ: mỗi 400ms dữ liệu âm thanh mới).
+        \item Tối ưu hóa đa luồng tại tầng C++ để việc chạy AI không gây nghẽn luồng thu âm.
+    \end{enumerate}
+    \item \textbf{Kết quả dự kiến:} Hệ thống trả về điểm số xác suất (0.0 - 1.0) đại diện cho độ tin cậy của giọng nói sau mỗi 400ms.
+\end{itemize}
+
+\subsection{Giai đoạn 4: Xây dựng hệ thống Phản hồi và Cảnh báo UI (Feedback System)}
+\begin{itemize}
+    \item \textbf{Các bước thực hiện:}
+    \begin{enumerate}
+        \item Triển khai cơ chế JNI Callback để tầng C++ gọi ngược lại hàm \texttt{onNativeAIResult} trong Kotlin.
+        \item Sử dụng \texttt{Dispatchers.Main} để cập nhật giao diện người dùng ngay lập tức từ kết quả AI.
+        \item Xây dựng logic phân loại rủi ro: An toàn (<50\%), Nghi vấn (50-80\%), Nguy hiểm (>80\%).
+        \item Cập nhật màu sắc (Xanh/Cam/Đỏ) và thông báo cảnh báo trên màn hình.
+    \end{enumerate}
+    \item \textbf{Kết quả dự kiến:} Người dùng thấy được tỷ lệ Deepfake thay đổi theo thời gian thực khi đang nói chuyện.
+\end{itemize}
+
+\subsection{Giai đoạn 5: Tối ưu hóa, Bảo mật và Đóng gói (Optimization \& Security)}
+\begin{itemize}
+    \item \textbf{Các bước thực hiện:}
+    \begin{enumerate}
+        \item Xây dựng hàm \texttt{nativeRAMFlush} để xóa sạch dữ liệu âm thanh thô trên RAM khi dừng.
+        \item Xử lý vòng đời ứng dụng (\texttt{onDestroy}) để giải phóng tài nguyên Microphone và bộ nhớ AI.
+        \item Tối ưu hóa CPU bằng cách điều chỉnh Thread Priority cho luồng thu âm.
+        \item Kiểm tra và xử lý các trường hợp ngoại lệ (mất quyền truy cập Mic, file model lỗi).
+    \end{enumerate}
+    \item \textbf{Kết quả dự kiến:} Ứng dụng hoạt động mượt mà; dữ liệu âm thanh được bảo mật hoàn toàn; không để lại dấu vết dữ liệu trên thiết bị.
+\end{itemize}
+
+\end{document}
