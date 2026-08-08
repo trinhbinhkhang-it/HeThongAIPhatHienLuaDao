@@ -1,6 +1,7 @@
 package com.voiceshield.ai
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
@@ -31,6 +32,15 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER
             setPadding(48, 48, 48, 48)
         }
+
+        val btnDiagnostic = Button(this).apply {
+            text = "CHẨN ĐOÁN HỆ THỐNG (DIAGNOSTIC)"
+            textSize = 16f
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, DiagnosticActivity::class.java))
+            }
+        }
+        rootLayout.addView(btnDiagnostic)
 
         txtStatus = TextView(this).apply {
             text = "Trạng thái: Chưa bật bảo vệ"

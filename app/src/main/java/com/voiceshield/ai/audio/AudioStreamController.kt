@@ -43,7 +43,7 @@ class AudioStreamController {
     companion object {
         private const val TAG = "AudioStreamController"
         init {
-            System.loadLibrary("voiceshield_core")
+            // System.loadLibrary("voiceshield_core")
         }
     }
 

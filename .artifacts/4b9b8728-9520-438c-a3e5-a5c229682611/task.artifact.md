@@ -1,3 +1,6 @@
-- [x] Tạo file DocumentApp.tex với nội dung chi tiết dự án
-- [x] Xác minh nội dung tài liệu
-- [x] Hoàn tất và gửi đường dẫn cho người dùng
+# Danh sách công việc - Diagnostic Messenger
+
+- [ ] Cập nhật `DiagnosticService.kt` (Theo dõi cấu hình ghi âm hệ thống)
+- [ ] Cập nhật `DiagnosticActivity.kt` (Thêm nút Restart & Hiển thị app khác)
+- [ ] Build & Cài đặt lên máy thật
+- [ ] Chạy thử kịch bản Messenger
