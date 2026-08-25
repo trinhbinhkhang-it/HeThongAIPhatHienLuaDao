@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
@@ -43,6 +44,7 @@ class ScreenCaptureService : Service() {
     private var windowSizeMs = DEFAULT_WINDOW_SIZE_SECONDS * 1_000L
     private var aggregation = DEFAULT_AGGREGATION
     @Volatile private var isFaceDetectionRunning = false
+    @Volatile private var lastTrackedFaceRect: Rect? = null
     private lateinit var captureThread: HandlerThread
     private lateinit var captureHandler: Handler
     private lateinit var faceDetector: FaceDetector
@@ -137,8 +139,10 @@ class ScreenCaptureService : Service() {
         captureHandler = Handler(captureThread.looper)
         faceDetector = FaceDetection.getClient(
             FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
                 .setMinFaceSize(MIN_FACE_SIZE)
+                .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_ALL)
+                .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
                 .build()
         )
         Log.i(TAG, "Face detector created")
@@ -159,21 +163,92 @@ class ScreenCaptureService : Service() {
             bitmap?.recycle()
             return
         }
+
+        val cropRect = getVideoCallCropRect(bitmap)
+        val cropWidth = cropRect.width()
+        val cropHeight = cropRect.height()
+        if (cropWidth <= 0 || cropHeight <= 0) {
+            bitmap.recycle()
+            return
+        }
+
+        val croppedBitmap = Bitmap.createBitmap(
+            bitmap,
+            cropRect.left,
+            cropRect.top,
+            cropWidth,
+            cropHeight
+        )
+
         isFaceDetectionRunning = true
-        faceDetector.process(InputImage.fromBitmap(bitmap, 0))
+        faceDetector.process(InputImage.fromBitmap(croppedBitmap, 0))
             .addOnSuccessListener { faces ->
-                Log.i(TAG, "Faces detected: ${faces.size}")
-                publishStatus("Faces detected: ${faces.size}")
-                faces.forEachIndexed { index, face ->
+                val rawFaceCount = faces.size
+                Log.i(TAG, "Raw ML Kit faces detected: $rawFaceCount")
+
+                val frameArea = croppedBitmap.width.toLong() * croppedBitmap.height.toLong()
+                val minFaceArea = maxOf(1_000L, (frameArea * 0.0025f).toLong())
+                val maxFaceArea = maxOf(minFaceArea + 1L, (frameArea * 0.75f).toLong())
+
+                val validFaces = faces.filter { face ->
                     val box = face.boundingBox
-                    Log.i(TAG, "Face ${index + 1} | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
+                    val area = box.width().toLong() * box.height().toLong()
+                    val isReasonableSize = area in minFaceArea..maxFaceArea
+                    val isReasonableShape = box.width() > 0 && box.height() > 0 &&
+                        box.height().toFloat() / box.width().toFloat() in 0.5f..1.8f
+                    isReasonableSize && isReasonableShape
                 }
-                faces.maxByOrNull { face ->
-                    face.boundingBox.width().toLong() * face.boundingBox.height()
-                }?.let { largestFace ->
-                    val box = largestFace.boundingBox
-                    Log.i(TAG, "Selected remote face (assumption: largest) | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
-                } ?: Log.i(TAG, "Invalid frame: no faces detected")
+
+                Log.i(TAG, "Faces detected after size filter: ${validFaces.size}")
+                publishStatus("Faces detected: ${validFaces.size}")
+                validFaces.forEachIndexed { index, face ->
+                    val box = face.boundingBox
+                    val adjustedBox = Rect(
+                        box.left + cropRect.left,
+                        box.top + cropRect.top,
+                        box.right + cropRect.left,
+                        box.bottom + cropRect.top
+                    )
+                    Log.i(TAG, "Face ${index + 1} | x=${adjustedBox.left}, y=${adjustedBox.top}, width=${adjustedBox.width()}, height=${adjustedBox.height()}")
+                }
+
+                val candidateRects = validFaces.map { face ->
+                    Rect(
+                        face.boundingBox.left + cropRect.left,
+                        face.boundingBox.top + cropRect.top,
+                        face.boundingBox.right + cropRect.left,
+                        face.boundingBox.bottom + cropRect.top
+                    )
+                }
+
+                val previousFace = lastTrackedFaceRect
+                val candidateWithoutPip = candidateRects
+                    .filterNot { box -> isLikelyPipPreview(box, bitmap.width, bitmap.height, previousFace) }
+                    .filterNot { box -> isLikelyPrivacyMask(box, bitmap.width, bitmap.height) }
+
+                if (previousFace != null && candidateWithoutPip.isEmpty()) {
+                    Log.i(TAG, "No candidate survived PIP/privacy filtering; resetting tracked face and waiting for a stronger match")
+                    lastTrackedFaceRect = null
+                }
+
+                val selectedFace = if (previousFace != null) {
+                    val sameIdentity = candidateWithoutPip.filter { box -> isLikelySameIdentity(box, previousFace) }
+                    sameIdentity.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
+                        ?: candidateWithoutPip.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
+                } else {
+                    candidateWithoutPip.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
+                }
+
+                selectedFace?.let { box ->
+                    if (previousFace == null || !isLikelySameIdentity(box, previousFace)) {
+                        Log.i(TAG, "Tracking reset to a new face | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
+                    }
+                    lastTrackedFaceRect = box
+                    Log.i(TAG, "Selected tracked face | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
+                } ?: run {
+                    Log.i(TAG, "Invalid frame: no valid participant face detected in the central call area")
+                    lastTrackedFaceRect = null
+                }
             }
             .addOnFailureListener { error ->
                 Log.e(TAG, "Face detection failed", error)
@@ -186,8 +261,75 @@ class ScreenCaptureService : Service() {
             }
             .addOnCompleteListener {
                 isFaceDetectionRunning = false
+                croppedBitmap.recycle()
                 bitmap.recycle()
             }
+    }
+
+    private fun getVideoCallCropRect(bitmap: Bitmap): Rect {
+        val left = (bitmap.width * 0.10f).toInt()
+        val top = (bitmap.height * 0.12f).toInt()
+        val right = (bitmap.width * 0.90f).toInt()
+        val bottom = (bitmap.height * 0.88f).toInt()
+        return Rect(left, top, right, bottom)
+    }
+
+    private fun isLikelyPipPreview(box: Rect, screenWidth: Int, screenHeight: Int, previousFace: Rect?): Boolean {
+        val areaRatio = box.width().toFloat() * box.height().toFloat() / (screenWidth * screenHeight).toFloat()
+        val isSmall = areaRatio < 0.012f
+        val isRounded = box.width() > 0 && box.height() > 0 &&
+            kotlin.math.abs(box.width().toFloat() / box.height().toFloat() - 1.0f) < 0.45f
+
+        val nearEdge = box.right > screenWidth * 0.78f && box.bottom < screenHeight * 0.45f
+        val nearPrevious = previousFace != null && isLikelySameIdentity(box, previousFace)
+
+        return isSmall && isRounded && nearEdge && !nearPrevious
+    }
+
+    private fun isLikelyPrivacyMask(box: Rect, screenWidth: Int, screenHeight: Int): Boolean {
+        val areaRatio = box.width().toFloat() * box.height().toFloat() / (screenWidth * screenHeight).toFloat()
+        val isTiny = areaRatio < 0.005f
+        val isTopLeftish = box.centerX() < screenWidth * 0.30f && box.centerY() < screenHeight * 0.25f
+        return isTiny && isTopLeftish
+    }
+
+    private fun isLikelySameIdentity(candidate: Rect, previousFace: Rect): Boolean {
+        val dx = kotlin.math.abs(candidate.centerX() - previousFace.centerX())
+        val dy = kotlin.math.abs(candidate.centerY() - previousFace.centerY())
+        val distance = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+        val similarSize = candidate.width() > previousFace.width() * 0.5f &&
+            candidate.height() > previousFace.height() * 0.5f &&
+            candidate.width() < previousFace.width() * 2.2f &&
+            candidate.height() < previousFace.height() * 2.2f
+        return distance < 180f && similarSize
+    }
+
+    private fun scoreFaceCandidate(
+        box: Rect,
+        screenWidth: Int,
+        screenHeight: Int,
+        previousFace: Rect?
+    ): Float {
+        val area = box.width().toFloat() * box.height().toFloat()
+        val cx = box.centerX().toFloat()
+        val cy = box.centerY().toFloat()
+
+        val sizeBias = area * 3f
+        val centerBias = 1_000_000f / (1f + kotlin.math.abs(cx - screenWidth * 0.58f) + kotlin.math.abs(cy - screenHeight * 0.26f))
+        val participantZone = if (cx in (screenWidth * 0.20f)..(screenWidth * 0.85f) &&
+            cy in (screenHeight * 0.04f)..(screenHeight * 0.60f)) 45_000f else 0f
+
+        val previousBoost = if (previousFace != null) {
+            val dx = kotlin.math.abs(cx - previousFace.centerX())
+            val dy = kotlin.math.abs(cy - previousFace.centerY())
+            val distance = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            val proximity = if (distance < 180f) 120_000f / (1f + distance / 80f) else 0f
+            proximity
+        } else {
+            0f
+        }
+
+        return sizeBias + centerBias + participantZone + previousBoost
     }
 
     private fun saveDebugFrame(image: android.media.Image) {
