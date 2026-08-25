@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">VoiceShieldAI</string>
+    <string-array name="sampling_rate_options">
+        <item>1 fps</item>
+        <item>2 fps</item>
+        <item>5 fps</item>
+    </string-array>
+    <string-array name="aggregation_options">
+        <item>average</item>
+    </string-array>
 </resources>

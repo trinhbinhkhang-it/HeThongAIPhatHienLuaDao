@@ -1,113 +1,105 @@
 package com.voiceshield.ai
 
-import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Color
+import android.content.IntentFilter
+import android.media.projection.MediaProjectionConfig
+import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
-import android.view.Gravity
+import android.util.Log
 import android.widget.Button
-import android.widget.LinearLayout
+import android.widget.EditText
+import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.voiceshield.ai.audio.AudioStreamController
 
 class MainActivity : AppCompatActivity() {
+    private var pendingConfig = CaptureConfig(1, DEFAULT_WINDOW_SIZE_SECONDS, "average")
+    private lateinit var captureStatus: TextView
+    private val captureStatusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            captureStatus.text = intent.getStringExtra(ScreenCaptureService.EXTRA_STATUS)
+                ?: "Capture status unavailable"
+        }
+    }
 
-    private val audioController = AudioStreamController()
-    private var isMonitoring = false
+    private val capturePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK || result.data == null) {
+                Log.i(TAG, "Capture permission denied")
+                return@registerForActivityResult
+            }
 
-    private lateinit var txtStatus: TextView
-    private lateinit var btnToggle: Button
+            Log.i(TAG, "Capture permission granted")
+            startForegroundService(Intent(this, ScreenCaptureService::class.java).apply {
+                putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
+                putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, result.data)
+                putExtra(ScreenCaptureService.EXTRA_SAMPLING_RATE, pendingConfig.samplingRate)
+                putExtra(ScreenCaptureService.EXTRA_WINDOW_SIZE_SECONDS, pendingConfig.windowSizeSeconds)
+                putExtra(ScreenCaptureService.EXTRA_AGGREGATION, pendingConfig.aggregation)
+            })
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+        captureStatus = findViewById(R.id.capture_status)
 
-        // 1. Dựng Layout giao diện test bằng Code
-        val rootLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            setPadding(48, 48, 48, 48)
-        }
-
-        val btnDiagnostic = Button(this).apply {
-            text = "CHẨN ĐOÁN HỆ THỐNG (DIAGNOSTIC)"
-            textSize = 16f
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, DiagnosticActivity::class.java))
+        findViewById<Button>(R.id.start_capture_button).setOnClickListener {
+            val samplingRate = when (findViewById<Spinner>(R.id.sampling_rate_spinner).selectedItemPosition) {
+                1 -> 2
+                2 -> 5
+                else -> 1
             }
-        }
-        rootLayout.addView(btnDiagnostic)
-
-        txtStatus = TextView(this).apply {
-            text = "Trạng thái: Chưa bật bảo vệ"
-            textSize = 20f
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 64)
-            setTextColor(Color.GRAY)
-        }
-
-        btnToggle = Button(this).apply {
-            text = "BẮT ĐẦU BẢO VỆ (START RAM BUFFER)"
-            textSize = 18f
-        }
-
-        rootLayout.addView(txtStatus)
-        rootLayout.addView(btnToggle)
-        setContentView(rootLayout)
-
-        checkPermission()
-
-        // 2. Đăng ký nhận kết quả AI gửi từ C++ Native
-        audioController.setOnAIResultListener(object : AudioStreamController.OnAIResultListener {
-            override fun onAIResult(score: Float) {
-                val percentage = (score * 100).toInt()
-
-                // Phân loại mức độ rủi ro Deepfake để đổi màu & cảnh báo UI
-                if (score >= 0.80f) {
-                    txtStatus.text = "⚠️ CẢNH BÁO DEEPFAKE!\nNguy cơ giả mạo: $percentage%"
-                    txtStatus.setTextColor(Color.RED)
-                } else if (score >= 0.50f) {
-                    txtStatus.text = "⚡ MỨC ĐỘ NGHI VẤN\nTỷ lệ Deepfake: $percentage%"
-                    txtStatus.setTextColor(Color.rgb(255, 140, 0)) // Màu cam
-                } else {
-                    txtStatus.text = "✅ Giọng nói an toàn\nTỷ lệ Deepfake: $percentage%"
-                    txtStatus.setTextColor(Color.rgb(0, 150, 0)) // Màu xanh lá
-                }
-            }
-        })
-
-        // 3. Xử lý sự kiện bấm nút Bắt đầu / Dừng
-        btnToggle.setOnClickListener {
-            if (!isMonitoring) {
-                audioController.startCapture()
-                btnToggle.text = "DỪNG BẢO VỆ (FLUSH RAM)"
-                txtStatus.text = "⏳ Đang lắng nghe & phân tích âm thanh..."
-                txtStatus.setTextColor(Color.BLUE)
-                Toast.makeText(this, "Đã bật ghi âm đệm RAM vòng tròn!", Toast.LENGTH_SHORT).show()
+            val windowSizeSeconds = findViewById<EditText>(R.id.window_size_input).text.toString()
+                .toIntOrNull()?.coerceIn(1, 60) ?: DEFAULT_WINDOW_SIZE_SECONDS
+            val aggregation = findViewById<Spinner>(R.id.aggregation_spinner).selectedItem.toString()
+            pendingConfig = CaptureConfig(samplingRate, windowSizeSeconds, aggregation)
+            Log.i(TAG, "Capture config | sampling_rate=$samplingRate fps | window_size=${windowSizeSeconds}s | aggregation=$aggregation")
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+                as MediaProjectionManager
+            val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                projectionManager.createScreenCaptureIntent(
+                    MediaProjectionConfig.createConfigForUserChoice()
+                )
             } else {
-                audioController.stopAndClear()
-                btnToggle.text = "BẮT ĐẦU BẢO VỆ (START RAM BUFFER)"
-                txtStatus.text = "Trạng thái: Đã dừng bảo vệ"
-                txtStatus.setTextColor(Color.GRAY)
-                Toast.makeText(this, "Đã hủy toàn bộ dữ liệu trên RAM!", Toast.LENGTH_SHORT).show()
+                projectionManager.createScreenCaptureIntent()
             }
-            isMonitoring = !isMonitoring
+            capturePermissionLauncher.launch(captureIntent)
+        }
+        findViewById<Button>(R.id.stop_capture_button).setOnClickListener {
+            stopService(Intent(this, ScreenCaptureService::class.java))
+            captureStatus.text = "Capture stopped"
         }
     }
 
-    private fun checkPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), 100)
-        }
+    override fun onStart() {
+        super.onStart()
+        ContextCompat.registerReceiver(
+            this,
+            captureStatusReceiver,
+            IntentFilter(ScreenCaptureService.ACTION_CAPTURE_STATUS),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        audioController.stopAndClear()
+    override fun onStop() {
+        unregisterReceiver(captureStatusReceiver)
+        super.onStop()
     }
+
+    private companion object {
+        const val TAG = "ScreenCapturePOC"
+        const val DEFAULT_WINDOW_SIZE_SECONDS = 5
+    }
+
+    private data class CaptureConfig(
+        val samplingRate: Int,
+        val windowSizeSeconds: Int,
+        val aggregation: String
+    )
 }
