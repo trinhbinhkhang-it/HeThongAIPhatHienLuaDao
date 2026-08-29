@@ -4,32 +4,35 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
-import android.graphics.PixelFormat
+import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
 import android.graphics.Rect
+import android.graphics.YuvImage
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
+import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
-import android.os.Environment
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
-import android.provider.MediaStore
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 
 class ScreenCaptureService : Service() {
     private var projection: MediaProjection? = null
@@ -45,6 +48,8 @@ class ScreenCaptureService : Service() {
     private var aggregation = DEFAULT_AGGREGATION
     @Volatile private var isFaceDetectionRunning = false
     @Volatile private var lastTrackedFaceRect: Rect? = null
+    private var consecutiveMisses = 0
+    private var consecutiveMismatches = 0
     private lateinit var captureThread: HandlerThread
     private lateinit var captureHandler: Handler
     private lateinit var faceDetector: FaceDetector
@@ -85,30 +90,33 @@ class ScreenCaptureService : Service() {
         imageReader = ImageReader.newInstance(
             metrics.widthPixels,
             metrics.heightPixels,
-            PixelFormat.RGBA_8888,
+            ImageFormat.YUV_420_888,
             2
         ).also { reader ->
             reader.setOnImageAvailableListener({ availableReader ->
-                availableReader.acquireLatestImage()?.use { image ->
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastSampleTimeMs < 1_000L / samplingRate) return@use
-                    lastSampleTimeMs = now
-                    if (windowStartedAtMs == 0L) windowStartedAtMs = now
-                    samplesInWindow++
-                    detectFaces(image.toBitmap())
-                    if (now - lastFrameLogTimeMs >= FRAME_LOG_INTERVAL_MS) {
-                        Log.i(TAG, "Frame received | Width: ${image.width} | Height: ${image.height}")
-                        lastFrameLogTimeMs = now
-                    }
-                    if (now - lastFrameSaveTimeMs >= windowSizeMs) {
-                        saveDebugFrame(image)
-                        lastFrameSaveTimeMs = now
-                    }
-                    if (now - windowStartedAtMs >= windowSizeMs) {
-                        Log.i(TAG, "Window complete | aggregation=$aggregation | samples=$samplesInWindow")
-                        windowStartedAtMs = now
-                        samplesInWindow = 0
-                    }
+                val image = availableReader.acquireLatestImage()
+                    ?: return@setOnImageAvailableListener
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastSampleTimeMs < 1_000L / samplingRate) {
+                    image.close()
+                    return@setOnImageAvailableListener
+                }
+                lastSampleTimeMs = now
+                if (windowStartedAtMs == 0L) windowStartedAtMs = now
+                samplesInWindow++
+                if (now - lastFrameLogTimeMs >= FRAME_LOG_INTERVAL_MS) {
+                    Log.i(TAG, "Frame received | Width: ${image.width} | Height: ${image.height}")
+                    lastFrameLogTimeMs = now
+                }
+                if (now - lastFrameSaveTimeMs >= windowSizeMs) {
+                    saveDebugFrame(image)
+                    lastFrameSaveTimeMs = now
+                }
+                detectFaces(image)
+                if (now - windowStartedAtMs >= windowSizeMs) {
+                    Log.i(TAG, "Window complete | aggregation=$aggregation | samples=$samplesInWindow")
+                    windowStartedAtMs = now
+                    samplesInWindow = 0
                 }
             }, captureHandler)
         }
@@ -158,35 +166,20 @@ class ScreenCaptureService : Service() {
         .setOngoing(true)
         .build()
 
-    private fun detectFaces(bitmap: Bitmap?) {
-        if (bitmap == null || isFaceDetectionRunning) {
-            bitmap?.recycle()
+    private fun detectFaces(image: Image?) {
+        if (image == null) return
+        if (isFaceDetectionRunning) {
+            image.close()
             return
         }
-
-        val cropRect = getVideoCallCropRect(bitmap)
-        val cropWidth = cropRect.width()
-        val cropHeight = cropRect.height()
-        if (cropWidth <= 0 || cropHeight <= 0) {
-            bitmap.recycle()
-            return
-        }
-
-        val croppedBitmap = Bitmap.createBitmap(
-            bitmap,
-            cropRect.left,
-            cropRect.top,
-            cropWidth,
-            cropHeight
-        )
 
         isFaceDetectionRunning = true
-        faceDetector.process(InputImage.fromBitmap(croppedBitmap, 0))
+        faceDetector.process(InputImage.fromMediaImage(image, 0))
             .addOnSuccessListener { faces ->
                 val rawFaceCount = faces.size
                 Log.i(TAG, "Raw ML Kit faces detected: $rawFaceCount")
 
-                val frameArea = croppedBitmap.width.toLong() * croppedBitmap.height.toLong()
+                val frameArea = image.width.toLong() * image.height.toLong()
                 val minFaceArea = maxOf(1_000L, (frameArea * 0.0025f).toLong())
                 val maxFaceArea = maxOf(minFaceArea + 1L, (frameArea * 0.75f).toLong())
 
@@ -203,52 +196,10 @@ class ScreenCaptureService : Service() {
                 publishStatus("Faces detected: ${validFaces.size}")
                 validFaces.forEachIndexed { index, face ->
                     val box = face.boundingBox
-                    val adjustedBox = Rect(
-                        box.left + cropRect.left,
-                        box.top + cropRect.top,
-                        box.right + cropRect.left,
-                        box.bottom + cropRect.top
-                    )
-                    Log.i(TAG, "Face ${index + 1} | x=${adjustedBox.left}, y=${adjustedBox.top}, width=${adjustedBox.width()}, height=${adjustedBox.height()}")
+                    Log.i(TAG, "Face ${index + 1} | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
                 }
 
-                val candidateRects = validFaces.map { face ->
-                    Rect(
-                        face.boundingBox.left + cropRect.left,
-                        face.boundingBox.top + cropRect.top,
-                        face.boundingBox.right + cropRect.left,
-                        face.boundingBox.bottom + cropRect.top
-                    )
-                }
-
-                val previousFace = lastTrackedFaceRect
-                val candidateWithoutPip = candidateRects
-                    .filterNot { box -> isLikelyPipPreview(box, bitmap.width, bitmap.height, previousFace) }
-                    .filterNot { box -> isLikelyPrivacyMask(box, bitmap.width, bitmap.height) }
-
-                if (previousFace != null && candidateWithoutPip.isEmpty()) {
-                    Log.i(TAG, "No candidate survived PIP/privacy filtering; resetting tracked face and waiting for a stronger match")
-                    lastTrackedFaceRect = null
-                }
-
-                val selectedFace = if (previousFace != null) {
-                    val sameIdentity = candidateWithoutPip.filter { box -> isLikelySameIdentity(box, previousFace) }
-                    sameIdentity.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
-                        ?: candidateWithoutPip.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
-                } else {
-                    candidateWithoutPip.maxByOrNull { box -> scoreFaceCandidate(box, bitmap.width, bitmap.height, previousFace) }
-                }
-
-                selectedFace?.let { box ->
-                    if (previousFace == null || !isLikelySameIdentity(box, previousFace)) {
-                        Log.i(TAG, "Tracking reset to a new face | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
-                    }
-                    lastTrackedFaceRect = box
-                    Log.i(TAG, "Selected tracked face | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
-                } ?: run {
-                    Log.i(TAG, "Invalid frame: no valid participant face detected in the central call area")
-                    lastTrackedFaceRect = null
-                }
+                updateTracking(validFaces.map { it.boundingBox }, image.width, image.height)
             }
             .addOnFailureListener { error ->
                 Log.e(TAG, "Face detection failed", error)
@@ -261,17 +212,64 @@ class ScreenCaptureService : Service() {
             }
             .addOnCompleteListener {
                 isFaceDetectionRunning = false
-                croppedBitmap.recycle()
-                bitmap.recycle()
+                image.close()
             }
     }
 
-    private fun getVideoCallCropRect(bitmap: Bitmap): Rect {
-        val left = (bitmap.width * 0.10f).toInt()
-        val top = (bitmap.height * 0.12f).toInt()
-        val right = (bitmap.width * 0.90f).toInt()
-        val bottom = (bitmap.height * 0.88f).toInt()
-        return Rect(left, top, right, bottom)
+    private fun updateTracking(candidateRects: List<Rect>, screenWidth: Int, screenHeight: Int) {
+        val previousFace = lastTrackedFaceRect
+        val candidates = candidateRects
+            .filterNot { box -> isLikelyPipPreview(box, screenWidth, screenHeight, previousFace) }
+            .filterNot { box -> isLikelyPrivacyMask(box, screenWidth, screenHeight) }
+
+        if (previousFace == null) {
+            val best = candidates.maxByOrNull { box -> scoreFaceCandidate(box, screenWidth, screenHeight, null) }
+            if (best != null) {
+                lastTrackedFaceRect = best
+                consecutiveMisses = 0
+                consecutiveMismatches = 0
+                Log.i(TAG, "Tracking started | x=${best.left}, y=${best.top}, width=${best.width()}, height=${best.height()}")
+            } else {
+                consecutiveMisses++
+                Log.i(TAG, "No participant face detected yet (miss $consecutiveMisses)")
+            }
+            return
+        }
+
+        if (candidates.isEmpty()) {
+            consecutiveMisses++
+            consecutiveMismatches = 0
+            if (consecutiveMisses >= MAX_MISS_TOLERANCE) {
+                Log.i(TAG, "Participant face missing for $consecutiveMisses frames; clearing tracked face")
+                lastTrackedFaceRect = null
+                consecutiveMisses = 0
+            } else {
+                Log.i(TAG, "Participant face missing ($consecutiveMisses/$MAX_MISS_TOLERANCE); holding tracked face")
+            }
+            return
+        }
+
+        val sameIdentity = candidates.filter { box -> isLikelySameIdentity(box, previousFace) }
+        if (sameIdentity.isNotEmpty()) {
+            val best = sameIdentity.maxByOrNull { box -> scoreFaceCandidate(box, screenWidth, screenHeight, previousFace) }!!
+            val smoothed = smoothFaceRect(previousFace, best)
+            lastTrackedFaceRect = smoothed
+            consecutiveMisses = 0
+            consecutiveMismatches = 0
+            Log.i(TAG, "Tracked face updated | x=${smoothed.left}, y=${smoothed.top}, width=${smoothed.width()}, height=${smoothed.height()}")
+            return
+        }
+
+        consecutiveMismatches++
+        consecutiveMisses = 0
+        if (consecutiveMismatches >= RESET_HYSTERESIS) {
+            val best = candidates.maxByOrNull { box -> scoreFaceCandidate(box, screenWidth, screenHeight, previousFace) }!!
+            Log.i(TAG, "Tracking reset to a new face after $consecutiveMismatches mismatches | x=${best.left}, y=${best.top}, width=${best.width()}, height=${best.height()}")
+            lastTrackedFaceRect = best
+            consecutiveMismatches = 0
+        } else {
+            Log.i(TAG, "Identity mismatch ($consecutiveMismatches/$RESET_HYSTERESIS); holding previous face")
+        }
     }
 
     private fun isLikelyPipPreview(box: Rect, screenWidth: Int, screenHeight: Int, previousFace: Rect?): Boolean {
@@ -294,14 +292,12 @@ class ScreenCaptureService : Service() {
     }
 
     private fun isLikelySameIdentity(candidate: Rect, previousFace: Rect): Boolean {
-        val dx = kotlin.math.abs(candidate.centerX() - previousFace.centerX())
-        val dy = kotlin.math.abs(candidate.centerY() - previousFace.centerY())
-        val distance = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+        val distance = centerDistance(candidate, previousFace)
         val similarSize = candidate.width() > previousFace.width() * 0.5f &&
             candidate.height() > previousFace.height() * 0.5f &&
             candidate.width() < previousFace.width() * 2.2f &&
             candidate.height() < previousFace.height() * 2.2f
-        return distance < 180f && similarSize
+        return distance < identityDistanceThreshold(previousFace) && similarSize
     }
 
     private fun scoreFaceCandidate(
@@ -320,11 +316,9 @@ class ScreenCaptureService : Service() {
             cy in (screenHeight * 0.04f)..(screenHeight * 0.60f)) 45_000f else 0f
 
         val previousBoost = if (previousFace != null) {
-            val dx = kotlin.math.abs(cx - previousFace.centerX())
-            val dy = kotlin.math.abs(cy - previousFace.centerY())
-            val distance = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
-            val proximity = if (distance < 180f) 120_000f / (1f + distance / 80f) else 0f
-            proximity
+            val distance = centerDistance(box, previousFace)
+            val threshold = identityDistanceThreshold(previousFace)
+            if (distance < threshold) 120_000f / (1f + distance / threshold.coerceAtLeast(1f)) else 0f
         } else {
             0f
         }
@@ -332,30 +326,45 @@ class ScreenCaptureService : Service() {
         return sizeBias + centerBias + participantZone + previousBoost
     }
 
-    private fun saveDebugFrame(image: android.media.Image) {
+    private fun centerDistance(a: Rect, b: Rect): Float {
+        val dx = (a.centerX() - b.centerX()).toFloat()
+        val dy = (a.centerY() - b.centerY()).toFloat()
+        return kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+
+    private fun identityDistanceThreshold(previousFace: Rect): Float =
+        previousFace.width() * IDENTITY_MOVEMENT_FRACTION
+
+    private fun smoothFaceRect(previous: Rect, current: Rect): Rect {
+        val alpha = SMOOTHING_ALPHA
+        fun blend(prev: Int, curr: Int): Int = (prev + (curr - prev) * alpha).toInt()
+        return Rect(
+            blend(previous.left, current.left),
+            blend(previous.top, current.top),
+            blend(previous.right, current.right),
+            blend(previous.bottom, current.bottom)
+        )
+    }
+
+    private fun saveDebugFrame(image: Image) {
         val bitmap = image.toBitmap() ?: run {
             Log.w(TAG, "Unable to convert captured frame to bitmap")
             return
         }
-        val timestamp = System.currentTimeMillis()
-        val values = ContentValues().apply {
-            put(MediaStore.Images.Media.DISPLAY_NAME, "zalo_capture_$timestamp.png")
-            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-            put(
-                MediaStore.Images.Media.RELATIVE_PATH,
-                "${Environment.DIRECTORY_PICTURES}/VoiceShieldAIFrames"
-            )
-        }
-
         try {
-            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                ?: error("MediaStore did not create an output URI")
-            contentResolver.openOutputStream(uri)?.use { output ->
+            val dir = File(filesDir, DEBUG_FRAME_DIR)
+            if (!dir.exists() && !dir.mkdirs()) {
+                Log.w(TAG, "Unable to create debug frame directory: ${dir.absolutePath}")
+                return
+            }
+            val file = File(dir, "frame_${System.currentTimeMillis()}.png")
+            FileOutputStream(file).use { output ->
                 check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) {
                     "Could not write PNG"
                 }
-            } ?: error("Could not open output stream")
-            Log.i(TAG, "Debug frame saved: $uri")
+            }
+            Log.i(TAG, "Debug frame saved: ${file.absolutePath}")
+            enforceDebugFrameRetention(dir)
         } catch (error: Exception) {
             Log.e(TAG, "Unable to save debug frame", error)
         } finally {
@@ -363,18 +372,51 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun android.media.Image.toBitmap(): Bitmap? {
-        val plane = planes.firstOrNull() ?: return null
-        val imageWidth = this.width
-        val imageHeight = this.height
-        val paddedWidth = imageWidth +
-            (plane.rowStride - plane.pixelStride * imageWidth) / plane.pixelStride
-        val paddedBitmap = Bitmap.createBitmap(paddedWidth, imageHeight, Bitmap.Config.ARGB_8888)
-        plane.buffer.rewind()
-        paddedBitmap.copyPixelsFromBuffer(plane.buffer)
-        val croppedBitmap = Bitmap.createBitmap(paddedBitmap, 0, 0, imageWidth, imageHeight)
-        paddedBitmap.recycle()
-        return croppedBitmap
+    private fun enforceDebugFrameRetention(dir: File) {
+        val frames = dir.listFiles { file -> file.isFile && file.extension == "png" } ?: return
+        if (frames.size <= DEBUG_FRAME_MAX_COUNT) return
+        frames.sortedBy { it.lastModified() }
+            .take(frames.size - DEBUG_FRAME_MAX_COUNT)
+            .forEach { it.delete() }
+    }
+
+    private fun Image.toBitmap(): Bitmap? {
+        val width = this.width
+        val height = this.height
+        if (width <= 0 || height <= 0 || planes.size < 3) return null
+
+        val yPlane = planes[0]
+        val uPlane = planes[1]
+        val vPlane = planes[2]
+        val yBuffer = yPlane.buffer
+        val uBuffer = uPlane.buffer
+        val vBuffer = vPlane.buffer
+
+        val nv21 = ByteArray(width * height * 3 / 2)
+        for (row in 0 until height) {
+            for (col in 0 until width) {
+                nv21[row * width + col] = yBuffer.get(row * yPlane.rowStride + col * yPlane.pixelStride)
+            }
+        }
+
+        var pos = width * height
+        val uvWidth = width / 2
+        val uvHeight = height / 2
+        for (row in 0 until uvHeight) {
+            for (col in 0 until uvWidth) {
+                nv21[pos] = vBuffer.get(row * vPlane.rowStride + col * vPlane.pixelStride)
+                nv21[pos + 1] = uBuffer.get(row * uPlane.rowStride + col * uPlane.pixelStride)
+                pos += 2
+            }
+        }
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+        val out = ByteArrayOutputStream()
+        if (!yuvImage.compressToJpeg(Rect(0, 0, width, height), 100, out)) {
+            return null
+        }
+        val jpeg = out.toByteArray()
+        return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
     }
 
     private fun Intent.projectionData(): Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -408,5 +450,11 @@ class ScreenCaptureService : Service() {
         private const val DEFAULT_WINDOW_SIZE_SECONDS = 5
         private const val DEFAULT_AGGREGATION = "average"
         private const val MIN_FACE_SIZE = 0.1f
+        private const val IDENTITY_MOVEMENT_FRACTION = 0.35f
+        private const val MAX_MISS_TOLERANCE = 3
+        private const val RESET_HYSTERESIS = 3
+        private const val SMOOTHING_ALPHA = 0.3f
+        private const val DEBUG_FRAME_DIR = "debug_frames"
+        private const val DEBUG_FRAME_MAX_COUNT = 10
     }
 }

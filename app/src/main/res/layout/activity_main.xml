@@ -22,6 +22,7 @@
         <Spinner android:id="@+id/aggregation_spinner" android:layout_width="match_parent" android:layout_height="wrap_content" android:entries="@array/aggregation_options" />
         <Button android:id="@+id/start_capture_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Start Capture" />
         <Button android:id="@+id/stop_capture_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Stop Capture" />
+        <Button android:id="@+id/view_debug_frames_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="View Saved Frames" />
         <TextView
             android:id="@+id/capture_status"
             android:layout_width="match_parent"
