@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageFormat
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
 import android.hardware.display.DisplayManager
@@ -90,7 +91,7 @@ class ScreenCaptureService : Service() {
         imageReader = ImageReader.newInstance(
             metrics.widthPixels,
             metrics.heightPixels,
-            ImageFormat.YUV_420_888,
+            PixelFormat.RGBA_8888,
             2
         ).also { reader ->
             reader.setOnImageAvailableListener({ availableReader ->
@@ -174,7 +175,24 @@ class ScreenCaptureService : Service() {
         }
 
         isFaceDetectionRunning = true
-        faceDetector.process(InputImage.fromMediaImage(image, 0))
+        val inputImage = when (image.format) {
+            ImageFormat.YUV_420_888 -> InputImage.fromMediaImage(image, 0)
+            PixelFormat.RGBA_8888 -> {
+                val bitmap = image.toBitmap() ?: run {
+                    isFaceDetectionRunning = false
+                    image.close()
+                    return
+                }
+                InputImage.fromBitmap(bitmap, 0)
+            }
+            else -> {
+                isFaceDetectionRunning = false
+                image.close()
+                return
+            }
+        }
+
+        faceDetector.process(inputImage)
             .addOnSuccessListener { faces ->
                 val rawFaceCount = faces.size
                 Log.i(TAG, "Raw ML Kit faces detected: $rawFaceCount")
@@ -252,7 +270,7 @@ class ScreenCaptureService : Service() {
         val sameIdentity = candidates.filter { box -> isLikelySameIdentity(box, previousFace) }
         if (sameIdentity.isNotEmpty()) {
             val best = sameIdentity.maxByOrNull { box -> scoreFaceCandidate(box, screenWidth, screenHeight, previousFace) }!!
-            val smoothed = smoothFaceRect(previousFace, best)
+            val smoothed = smoothFaceRect(previousFace, best, screenWidth, screenHeight)
             lastTrackedFaceRect = smoothed
             consecutiveMisses = 0
             consecutiveMismatches = 0
@@ -335,14 +353,14 @@ class ScreenCaptureService : Service() {
     private fun identityDistanceThreshold(previousFace: Rect): Float =
         previousFace.width() * IDENTITY_MOVEMENT_FRACTION
 
-    private fun smoothFaceRect(previous: Rect, current: Rect): Rect {
+    private fun smoothFaceRect(previous: Rect, current: Rect, screenWidth: Int, screenHeight: Int): Rect {
         val alpha = SMOOTHING_ALPHA
         fun blend(prev: Int, curr: Int): Int = (prev + (curr - prev) * alpha).toInt()
         return Rect(
-            blend(previous.left, current.left),
-            blend(previous.top, current.top),
-            blend(previous.right, current.right),
-            blend(previous.bottom, current.bottom)
+            blend(previous.left, current.left).coerceIn(0, screenWidth),
+            blend(previous.top, current.top).coerceIn(0, screenHeight),
+            blend(previous.right, current.right).coerceIn(0, screenWidth),
+            blend(previous.bottom, current.bottom).coerceIn(0, screenHeight)
         )
     }
 
@@ -383,40 +401,77 @@ class ScreenCaptureService : Service() {
     private fun Image.toBitmap(): Bitmap? {
         val width = this.width
         val height = this.height
-        if (width <= 0 || height <= 0 || planes.size < 3) return null
+        if (width <= 0 || height <= 0) return null
 
-        val yPlane = planes[0]
-        val uPlane = planes[1]
-        val vPlane = planes[2]
-        val yBuffer = yPlane.buffer
-        val uBuffer = uPlane.buffer
-        val vBuffer = vPlane.buffer
+        return when (format) {
+            PixelFormat.RGBA_8888 -> {
+                val plane = planes.firstOrNull() ?: return null
+                val rowStride = plane.rowStride
+                val pixelStride = plane.pixelStride
+                val expectedStride = width * 4
+                Log.i(TAG, "RGBA stride check | rowStride=$rowStride | expected=$expectedStride | width=$width | height=$height")
 
-        val nv21 = ByteArray(width * height * 3 / 2)
-        for (row in 0 until height) {
-            for (col in 0 until width) {
-                nv21[row * width + col] = yBuffer.get(row * yPlane.rowStride + col * yPlane.pixelStride)
+                val output = ByteArray(width * height * 4)
+                val source = plane.buffer.duplicate()
+                val rowBytes = ByteArray(width * 4)
+
+                if (rowStride == expectedStride && pixelStride == 4) {
+                    source.rewind()
+                    if (source.remaining() < output.size) return null
+                    source.get(output)
+                } else {
+                    val stride = maxOf(rowStride, expectedStride)
+                    val rowLength = width * 4
+                    for (row in 0 until height) {
+                        source.position(row * stride)
+                        source.get(rowBytes, 0, rowLength)
+                        System.arraycopy(rowBytes, 0, output, row * rowLength, rowLength)
+                    }
+                }
+
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                val buffer = java.nio.ByteBuffer.wrap(output)
+                bitmap.copyPixelsFromBuffer(buffer)
+                bitmap
             }
-        }
+            ImageFormat.YUV_420_888 -> {
+                if (planes.size < 3) return null
 
-        var pos = width * height
-        val uvWidth = width / 2
-        val uvHeight = height / 2
-        for (row in 0 until uvHeight) {
-            for (col in 0 until uvWidth) {
-                nv21[pos] = vBuffer.get(row * vPlane.rowStride + col * vPlane.pixelStride)
-                nv21[pos + 1] = uBuffer.get(row * uPlane.rowStride + col * uPlane.pixelStride)
-                pos += 2
+                val yPlane = planes[0]
+                val uPlane = planes[1]
+                val vPlane = planes[2]
+                val yBuffer = yPlane.buffer
+                val uBuffer = uPlane.buffer
+                val vBuffer = vPlane.buffer
+
+                val nv21 = ByteArray(width * height * 3 / 2)
+                for (row in 0 until height) {
+                    for (col in 0 until width) {
+                        nv21[row * width + col] = yBuffer.get(row * yPlane.rowStride + col * yPlane.pixelStride)
+                    }
+                }
+
+                var pos = width * height
+                val uvWidth = width / 2
+                val uvHeight = height / 2
+                for (row in 0 until uvHeight) {
+                    for (col in 0 until uvWidth) {
+                        nv21[pos] = vBuffer.get(row * vPlane.rowStride + col * vPlane.pixelStride)
+                        nv21[pos + 1] = uBuffer.get(row * uPlane.rowStride + col * uPlane.pixelStride)
+                        pos += 2
+                    }
+                }
+
+                val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
+                val out = ByteArrayOutputStream()
+                if (!yuvImage.compressToJpeg(Rect(0, 0, width, height), 100, out)) {
+                    return null
+                }
+                val jpeg = out.toByteArray()
+                BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
             }
+            else -> null
         }
-
-        val yuvImage = YuvImage(nv21, ImageFormat.NV21, width, height, null)
-        val out = ByteArrayOutputStream()
-        if (!yuvImage.compressToJpeg(Rect(0, 0, width, height), 100, out)) {
-            return null
-        }
-        val jpeg = out.toByteArray()
-        return BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
     }
 
     private fun Intent.projectionData(): Intent? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
