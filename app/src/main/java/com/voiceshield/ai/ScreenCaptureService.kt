@@ -49,6 +49,7 @@ class ScreenCaptureService : Service() {
     private var aggregation = DEFAULT_AGGREGATION
     @Volatile private var isFaceDetectionRunning = false
     @Volatile private var lastTrackedFaceRect: Rect? = null
+    private var hasParticipantFace = false
     private var consecutiveMisses = 0
     private var consecutiveMismatches = 0
     private lateinit var captureThread: HandlerThread
@@ -246,9 +247,11 @@ class ScreenCaptureService : Service() {
                 lastTrackedFaceRect = best
                 consecutiveMisses = 0
                 consecutiveMismatches = 0
+                setParticipantFaceDetected(true)
                 Log.i(TAG, "Tracking started | x=${best.left}, y=${best.top}, width=${best.width()}, height=${best.height()}")
             } else {
                 consecutiveMisses++
+                setParticipantFaceDetected(false)
                 Log.i(TAG, "No participant face detected yet (miss $consecutiveMisses)")
             }
             return
@@ -261,6 +264,7 @@ class ScreenCaptureService : Service() {
                 Log.i(TAG, "Participant face missing for $consecutiveMisses frames; clearing tracked face")
                 lastTrackedFaceRect = null
                 consecutiveMisses = 0
+                setParticipantFaceDetected(false)
             } else {
                 Log.i(TAG, "Participant face missing ($consecutiveMisses/$MAX_MISS_TOLERANCE); holding tracked face")
             }
@@ -274,6 +278,7 @@ class ScreenCaptureService : Service() {
             lastTrackedFaceRect = smoothed
             consecutiveMisses = 0
             consecutiveMismatches = 0
+            setParticipantFaceDetected(true)
             Log.i(TAG, "Tracked face updated | x=${smoothed.left}, y=${smoothed.top}, width=${smoothed.width()}, height=${smoothed.height()}")
             return
         }
@@ -285,6 +290,7 @@ class ScreenCaptureService : Service() {
             Log.i(TAG, "Tracking reset to a new face after $consecutiveMismatches mismatches | x=${best.left}, y=${best.top}, width=${best.width()}, height=${best.height()}")
             lastTrackedFaceRect = best
             consecutiveMismatches = 0
+            setParticipantFaceDetected(true)
         } else {
             Log.i(TAG, "Identity mismatch ($consecutiveMismatches/$RESET_HYSTERESIS); holding previous face")
         }
@@ -489,6 +495,16 @@ class ScreenCaptureService : Service() {
         )
     }
 
+    private fun setParticipantFaceDetected(detected: Boolean) {
+        if (hasParticipantFace == detected) return
+        hasParticipantFace = detected
+        sendBroadcast(
+            Intent(ACTION_FACE_DETECTION_CHANGED)
+                .setPackage(packageName)
+                .putExtra(EXTRA_FACE_DETECTED, detected)
+        )
+    }
+
     companion object {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
@@ -497,6 +513,8 @@ class ScreenCaptureService : Service() {
         const val EXTRA_AGGREGATION = "aggregation"
         const val ACTION_CAPTURE_STATUS = "com.voiceshield.ai.CAPTURE_STATUS"
         const val EXTRA_STATUS = "status"
+        const val ACTION_FACE_DETECTION_CHANGED = "com.voiceshield.ai.FACE_DETECTION_CHANGED"
+        const val EXTRA_FACE_DETECTED = "face_detected"
         private const val CHANNEL_ID = "screen_capture"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "ScreenCapturePOC"

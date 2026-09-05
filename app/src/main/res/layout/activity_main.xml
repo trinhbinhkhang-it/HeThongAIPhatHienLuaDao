@@ -72,7 +72,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="Bảo vệ đã sẵn sàng"
+                android:text="Bảo vệ cuộc gọi"
                 android:textColor="#F1F5F9"
                 android:textSize="17sp"
                 android:textStyle="bold" />
@@ -93,7 +93,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="22dp"
-                android:text="Bắt đầu bảo vệ"
+                android:text="Bật bảo vệ"
                 android:textAllCaps="false"
                 android:textColor="#FFFFFF"
                 android:textSize="14sp"
@@ -103,49 +103,58 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/protection_level_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="20dp"
-            android:orientation="horizontal">
+            android:background="@drawable/bg_status_card"
+            android:orientation="vertical"
+            android:padding="18dp">
 
             <TextView
-                android:layout_width="0dp"
-                android:layout_height="76dp"
-                android:layout_marginEnd="5dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_stat"
-                android:gravity="center"
-                android:lineSpacingExtra="2dp"
-                android:text="18\ncuộc gọi đã kiểm tra"
-                android:textAlignment="center"
-                android:textColor="#F1F5F9"
-                android:textSize="12sp" />
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="MỨC ĐỘ BẢO VỆ"
+                android:textColor="#8B96AA"
+                android:textSize="12sp"
+                android:textStyle="bold" />
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="76dp"
-                android:layout_marginHorizontal="5dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_stat"
-                android:gravity="center"
-                android:lineSpacingExtra="2dp"
-                android:text="2\nlượt cảnh báo"
-                android:textAlignment="center"
-                android:textColor="#F1F5F9"
-                android:textSize="12sp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="76dp"
-                android:layout_marginStart="5dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_stat"
-                android:gravity="center"
-                android:lineSpacingExtra="2dp"
-                android:text="94%\nđộ tin cậy trung bình"
-                android:textAlignment="center"
-                android:textColor="#F1F5F9"
-                android:textSize="12sp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/protection_level_medium"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:text="Trung bình"
+                    android:textAllCaps="false"
+                    android:textColor="#FFFFFF"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="#1D4ED8"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/protection_level_high"
+                    android:layout_width="0dp"
+                    android:layout_height="44dp"
+                    android:layout_marginStart="6dp"
+                    android:layout_weight="1"
+                    android:text="Cao"
+                    android:textAllCaps="false"
+                    android:textColor="#C9D3E6"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    app:backgroundTint="#1A2438"
+                    app:cornerRadius="12dp"
+                    app:strokeColor="#33415C"
+                    app:strokeWidth="1dp" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 
