@@ -1,5 +1,11 @@
 <resources>
-    <string name="app_name">VoiceShieldAI</string>
+    <string name="app_name">DeepCheck</string>
+    <string name="protection_ready_title">Bảo vệ đã sẵn sàng</string>
+    <string name="protection_ready_description">Bật bảo vệ để DeepCheck sẵn sàng hỗ trợ bạn khi đang gọi điện.</string>
+    <string name="start_protection">Bắt đầu bảo vệ</string>
+    <string name="protection_active_title">Đang giám sát nền</string>
+    <string name="protection_active_description">Floating control đã sẵn sàng. Mở Zalo, sau đó chạm vào biểu tượng khi bạn muốn bảo vệ cuộc gọi.</string>
+    <string name="stop_protection">Dừng bảo vệ</string>
     <string-array name="sampling_rate_options">
         <item>1 fps</item>
         <item>2 fps</item>

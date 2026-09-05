@@ -2,33 +2,182 @@
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#0A0E17">
 
     <LinearLayout
+        android:id="@+id/app_header"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_margin="24dp"
-        android:orientation="vertical"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="18dp"
+        android:layout_marginEnd="20dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Sampling rate" />
-        <Spinner android:id="@+id/sampling_rate_spinner" android:layout_width="match_parent" android:layout_height="wrap_content" android:entries="@array/sampling_rate_options" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="Window size (seconds)" />
-        <EditText android:id="@+id/window_size_input" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="5" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="Aggregation" />
-        <Spinner android:id="@+id/aggregation_spinner" android:layout_width="match_parent" android:layout_height="wrap_content" android:entries="@array/aggregation_options" />
-        <Button android:id="@+id/start_capture_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Start Capture" />
-        <Button android:id="@+id/stop_capture_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Stop Capture" />
-        <Button android:id="@+id/view_debug_frames_button" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="View Saved Frames" />
         <TextView
-            android:id="@+id/capture_status"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_app_logo"
+            android:gravity="center"
+            android:text="🛡"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:text="DeepCheck"
+            android:textColor="#F1F5F9"
+            android:textSize="19sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/home_content"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toTopOf="@id/bottom_navigation"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_header"
+        app:layout_constraintVertical_bias="0.50">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Capture idle" />
+            android:background="@drawable/bg_status_card"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="28dp">
+
+            <TextView
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="@drawable/bg_status_icon"
+                android:gravity="center"
+                android:text="◉"
+                android:textColor="#22D3C8"
+                android:textSize="30sp" />
+
+            <TextView
+                android:id="@+id/protection_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Bảo vệ đã sẵn sàng"
+                android:textColor="#F1F5F9"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/protection_description"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:lineSpacingExtra="3dp"
+                android:text="Bật bảo vệ để DeepCheck sẵn sàng hỗ trợ bạn khi đang gọi điện."
+                android:textColor="#8B96AA"
+                android:textSize="13sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/protection_button"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="22dp"
+                android:text="Bắt đầu bảo vệ"
+                android:textAllCaps="false"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:backgroundTint="#0068FF"
+                app:cornerRadius="14dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="76dp"
+                android:layout_marginEnd="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_stat"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:text="18\ncuộc gọi đã kiểm tra"
+                android:textAlignment="center"
+                android:textColor="#F1F5F9"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="76dp"
+                android:layout_marginHorizontal="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_stat"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:text="2\nlượt cảnh báo"
+                android:textAlignment="center"
+                android:textColor="#F1F5F9"
+                android:textSize="12sp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="76dp"
+                android:layout_marginStart="5dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_stat"
+                android:gravity="center"
+                android:lineSpacingExtra="2dp"
+                android:text="94%\nđộ tin cậy trung bình"
+                android:textAlignment="center"
+                android:textColor="#F1F5F9"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/bottom_navigation"
+        android:layout_width="0dp"
+        android:layout_height="72dp"
+        android:background="@drawable/bg_bottom_navigation"
+        android:gravity="center"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="⌂\nTrang chủ"
+            android:textColor="#22D3C8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="◷\nLịch sử"
+            android:textColor="#5B6785"
+            android:textSize="12sp" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
