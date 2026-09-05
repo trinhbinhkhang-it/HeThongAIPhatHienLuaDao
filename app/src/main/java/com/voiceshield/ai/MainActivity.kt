@@ -49,6 +49,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val protectionStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            updateProtectionState(intent.getBooleanExtra(ProtectionState.EXTRA_ACTIVE, false))
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -69,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         mediumLevelButton.setOnClickListener { selectProtectionLevel(false) }
         highLevelButton.setOnClickListener { selectProtectionLevel(true) }
         selectProtectionLevel(false)
+        updateProtectionState(ProtectionState.isActive(this))
     }
 
     private fun startProtection() {
@@ -86,14 +93,16 @@ class MainActivity : AppCompatActivity() {
         ) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
         }
-        startFloatingBubble()
+        ProtectionState.setActive(this, true)
         updateProtectionState(true)
+        startFloatingBubble()
         requestScreenCapture()
     }
 
     private fun stopProtection() {
         stopService(Intent(this, ScreenCaptureService::class.java))
         stopService(Intent(this, FloatingBubbleService::class.java))
+        ProtectionState.setActive(this, false)
         updateProtectionState(false)
     }
 
@@ -137,15 +146,23 @@ class MainActivity : AppCompatActivity() {
             IntentFilter(ScreenCaptureService.ACTION_CAPTURE_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(
+            this,
+            protectionStateReceiver,
+            IntentFilter(ProtectionState.ACTION_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     override fun onStop() {
         unregisterReceiver(captureStatusReceiver)
+        unregisterReceiver(protectionStateReceiver)
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
+        updateProtectionState(ProtectionState.isActive(this))
         if (waitingForOverlayPermission) {
             waitingForOverlayPermission = false
             if (Settings.canDrawOverlays(this)) enableProtection()

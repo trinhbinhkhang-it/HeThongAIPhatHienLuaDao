@@ -1,5 +1,6 @@
 package com.voiceshield.ai
 
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -8,6 +9,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.view.MotionEvent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -33,9 +35,11 @@ enum class RiskLevel { NO_RESULT, NORMAL, SUSPICIOUS, HIGH_RISK }
 
 class FloatingBubbleService : Service() {
     private lateinit var windowManager: WindowManager
-    private lateinit var bubble: FrameLayout
+    private lateinit var bubbleContainer: FrameLayout
+    private lateinit var bubbleContent: FrameLayout
     private lateinit var bubbleText: TextView
     private lateinit var ripple: View
+    private lateinit var bubbleLayoutParams: WindowManager.LayoutParams
     private val handler = Handler(Looper.getMainLooper())
     private var panel: View? = null
     private var current = DetectionResult(0, RiskLevel.NO_RESULT)
@@ -43,6 +47,14 @@ class FloatingBubbleService : Service() {
     private var monitoringStarted = false
     private var resultSequenceStarted = false
     private var participantFaceDetected = false
+    private var isFloating = false
+
+    private var isDragging = false
+    private var lastActionDownTime = 0L
+    private var initialX = 0
+    private var initialY = 0
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
 
     private val faceDetectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -55,6 +67,8 @@ class FloatingBubbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // The main screen has already enabled protection before it starts this service.
+        monitoringStarted = ProtectionState.isActive(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         ContextCompat.registerReceiver(
@@ -67,29 +81,43 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        highProtection = intent?.getBooleanExtra(EXTRA_HIGH_PROTECTION, false) ?: false
+        if (intent?.hasExtra(EXTRA_HIGH_PROTECTION) == true) {
+            highProtection = intent.getBooleanExtra(EXTRA_HIGH_PROTECTION, false)
+        }
+        monitoringStarted = true
+        ProtectionState.setActive(this, true)
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        stopFloating()
+        ProtectionState.setActive(this, false)
         unregisterReceiver(faceDetectionReceiver)
         removePanel()
-        runCatching { windowManager.removeView(bubble) }
+        runCatching { windowManager.removeView(bubbleContainer) }
         super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    @SuppressLint("ClickableViewAccessibility")
     private fun showBubble() {
-        bubble = FrameLayout(this).apply {
-            layoutParams = FrameLayout.LayoutParams(dp(64), dp(64))
-            setOnClickListener { showPanel() }
+        bubbleContainer = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
         }
+
+        bubbleContent = FrameLayout(this).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+
         ripple = View(this).apply {
-            layoutParams = FrameLayout.LayoutParams(dp(64), dp(64))
+            layoutParams = FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER)
             background = circle(Color.TRANSPARENT, COLOR_BLUE, 2)
         }
+
         bubbleText = TextView(this).apply {
             layoutParams = FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER)
             gravity = Gravity.CENTER
@@ -98,46 +126,134 @@ class FloatingBubbleService : Service() {
             setLineSpacing(0f, .9f)
             background = circle(COLOR_BLUE)
         }
-        bubble.addView(ripple)
-        bubble.addView(bubbleText)
-        windowManager.addView(bubble, overlayParams(dp(64), dp(64), Gravity.BOTTOM or Gravity.END, true).apply {
-            x = dp(18)
-            y = dp(96)
-        })
+
+        bubbleContent.addView(ripple)
+        bubbleContent.addView(bubbleText)
+
+        bubbleContent.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    isDragging = false
+                    lastActionDownTime = System.currentTimeMillis()
+                    initialX = bubbleLayoutParams.x
+                    initialY = bubbleLayoutParams.y
+                    initialTouchX = event.rawX
+                    initialTouchY = event.rawY
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - initialTouchX).toInt()
+                    val dy = (event.rawY - initialTouchY).toInt()
+                    if (!isDragging && (kotlin.math.abs(dx) > dp(6) || kotlin.math.abs(dy) > dp(6))) {
+                        isDragging = true
+                    }
+                    if (isDragging) {
+                        bubbleLayoutParams.x = initialX - dx
+                        bubbleLayoutParams.y = initialY - dy
+                        windowManager.updateViewLayout(bubbleContainer, bubbleLayoutParams)
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!isDragging && System.currentTimeMillis() - lastActionDownTime < 400) {
+                        togglePanel()
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+
+        bubbleContainer.addView(bubbleContent, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
+
+        bubbleLayoutParams = overlayParams(dp(100), dp(100), Gravity.BOTTOM or Gravity.END, true).apply {
+            x = dp(14)
+            y = dp(90)
+        }
+
+        windowManager.addView(bubbleContainer, bubbleLayoutParams)
         render()
     }
 
     private fun render() {
         val (color, label) = when (current.riskLevel) {
-            RiskLevel.NO_RESULT -> COLOR_BLUE to "Đang\nphân tích"
+            RiskLevel.NO_RESULT -> COLOR_BLUE to ""
             RiskLevel.NORMAL -> COLOR_GREEN to "${current.score}%"
             RiskLevel.SUSPICIOUS -> COLOR_YELLOW to "${current.score}%"
             RiskLevel.HIGH_RISK -> COLOR_RED to "${current.score}%"
         }
-        bubbleText.text = "◉\n$label"
+        bubbleText.text = if (label.isEmpty()) "◉" else "◉\n$label"
         bubbleText.background = circle(color)
         ripple.background = circle(Color.TRANSPARENT, color, 2)
-        bubble.contentDescription = "DeepCheck: ${current.riskLevel.description()}, $label"
+        bubbleContainer.contentDescription = if (label.isEmpty()) {
+            "DeepCheck: đang bảo vệ"
+        } else {
+            "DeepCheck: ${current.riskLevel.description()}, $label"
+        }
         animateBubble(current.riskLevel)
     }
 
     private fun animateBubble(level: RiskLevel) {
         ripple.animate().cancel()
-        bubble.animate().cancel()
         when (level) {
-            RiskLevel.NO_RESULT -> bubble.animate().translationYBy(-dp(3).toFloat())
-                .setDuration(900).setInterpolator(AccelerateDecelerateInterpolator()).withEndAction {
-                    bubble.animate().translationY(0f).setDuration(900).start()
-                }.start()
-            RiskLevel.NORMAL -> Unit
-            RiskLevel.SUSPICIOUS, RiskLevel.HIGH_RISK -> {
-                val duration = if (level == RiskLevel.HIGH_RISK) 650L else 1_300L
-                ripple.alpha = .7f
-                ripple.scaleX = .88f; ripple.scaleY = .88f
-                ripple.animate().scaleX(if (level == RiskLevel.HIGH_RISK) 1.42f else 1.24f)
-                    .scaleY(if (level == RiskLevel.HIGH_RISK) 1.42f else 1.24f).alpha(0f)
-                    .setDuration(duration).withEndAction { animateBubble(level) }.start()
+            RiskLevel.NO_RESULT -> {
+                startFloating()
             }
+            RiskLevel.NORMAL -> {
+                stopFloating()
+            }
+            RiskLevel.SUSPICIOUS, RiskLevel.HIGH_RISK -> {
+                stopFloating()
+                val duration = if (level == RiskLevel.HIGH_RISK) 700L else 1300L
+                ripple.alpha = 0.75f
+                ripple.scaleX = 0.9f
+                ripple.scaleY = 0.9f
+                ripple.animate()
+                    .scaleX(1.35f)
+                    .scaleY(1.35f)
+                    .alpha(0f)
+                    .setDuration(duration)
+                    .withEndAction {
+                        if (current.riskLevel == level) {
+                            animateBubble(level)
+                        }
+                    }
+                    .start()
+            }
+        }
+    }
+
+    private fun startFloating() {
+        if (isFloating) return
+        isFloating = true
+        animateFloatingStep(-dp(5).toFloat())
+    }
+
+    private fun animateFloatingStep(targetY: Float) {
+        if (!isFloating) return
+        bubbleContent.animate()
+            .translationY(targetY)
+            .setDuration(1200)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .withEndAction {
+                if (isFloating) {
+                    animateFloatingStep(if (targetY < 0) dp(5).toFloat() else -dp(5).toFloat())
+                }
+            }
+            .start()
+    }
+
+    private fun stopFloating() {
+        isFloating = false
+        bubbleContent.animate().cancel()
+        bubbleContent.animate().translationY(0f).setDuration(250).start()
+    }
+
+    private fun togglePanel() {
+        if (panel != null) {
+            removePanel()
+        } else {
+            showPanel()
         }
     }
 
@@ -171,18 +287,13 @@ class FloatingBubbleService : Service() {
         card.addView(title, LinearLayout.LayoutParams(-1, -2))
         when (current.riskLevel) {
             RiskLevel.NO_RESULT -> {
-                title.text = if (monitoringStarted) "ĐANG PHÂN TÍCH" else "BẢO VỆ CUỘC GỌI"
-                message.text = if (monitoringStarted) {
-                    "Đang chờ phát hiện khuôn mặt trong cuộc gọi video."
-                } else {
-                    "Sẵn sàng phân tích cuộc gọi video này."
-                }
+                title.text = "BẢO VỆ CUỘC GỌI"
+                message.text = "Đang chờ phát hiện khuôn mặt trong cuộc gọi video."
                 card.addView(message, LinearLayout.LayoutParams(-1, -2))
-                if (monitoringStarted) {
-                    card.addView(singleAction("Tiếp tục phân tích", ::removePanel), LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(20) })
-                } else {
-                    card.addView(actionRow("Hủy", "Bắt đầu", ::removePanel, ::startMonitoring))
-                }
+                card.addView(
+                    actionRow("Tiếp tục theo dõi", "Tắt bảo vệ", ::removePanel, ::stopProtection),
+                    LinearLayout.LayoutParams(-1, -2)
+                )
             }
             else -> {
                 title.text = if (current.riskLevel == RiskLevel.HIGH_RISK) "⚠ RỦI RO CAO" else "ĐANG PHÂN TÍCH"
@@ -191,7 +302,7 @@ class FloatingBubbleService : Service() {
                 card.addView(score, LinearLayout.LayoutParams(-1, -2))
                 card.addView(message, LinearLayout.LayoutParams(-1, -2))
                 card.addView(
-                    actionRow("Tiếp tục phân tích", "Dừng phân tích", ::removePanel) { stopSelf() },
+                    actionRow("Tiếp tục theo dõi", "Tắt bảo vệ", ::removePanel, ::stopProtection),
                     LinearLayout.LayoutParams(-1, -2)
                 )
             }
@@ -200,13 +311,10 @@ class FloatingBubbleService : Service() {
         windowManager.addView(card, overlayParams(dp(310), WindowManager.LayoutParams.WRAP_CONTENT, Gravity.CENTER, false))
     }
 
-    private fun startMonitoring() {
-        removePanel()
-        handler.removeCallbacksAndMessages(null)
-        monitoringStarted = true
-        resultSequenceStarted = false
-        update(DetectionResult(0, RiskLevel.NO_RESULT))
-        if (participantFaceDetected) beginResultSequenceAfterFaceDetected()
+    private fun stopProtection() {
+        ProtectionState.setActive(this, false)
+        stopService(Intent(this, ScreenCaptureService::class.java))
+        stopSelf()
     }
 
     /** Starts demo/model results only after ScreenCaptureService identifies a participant face. */
