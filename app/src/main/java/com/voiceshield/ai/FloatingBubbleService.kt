@@ -19,6 +19,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.view.GestureDetector
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -29,6 +30,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.DimenRes
+import androidx.annotation.DrawableRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
@@ -61,14 +63,18 @@ class FloatingBubbleService : Service() {
     private var scanning = false
     private var rippleDuration = RIPPLE_DURATION_MS
 
+    /** Guards the blink recursion so stopBlink() can't be raced by an end-action. */
+    private var isBlinking = false
+    private var blinkingIcon: ImageView? = null
+
     private var isDragging = false
-    private var lastActionDownTime = 0L
     private var initialX = 0
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
 
     // ── Phase 4: design-token colours loaded once ──
+    private var cMint100 = 0
     private var cMint500 = 0
     private var cMint600 = 0
     private var cSurface = 0
@@ -89,6 +95,45 @@ class FloatingBubbleService : Service() {
     private lateinit var fontMedium: Typeface
     private lateinit var fontBold: Typeface
 
+    /**
+     * Double-click is the only bubble gesture (spec §3): it toggles the scan.
+     * Every touch event is offered to this detector first, so it coexists with
+     * the manual vertical-drag handling below.
+     */
+    private val gestureDetector by lazy {
+        GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                toggleScan()
+                return true
+            }
+        })
+    }
+
+    /**
+     * Fires once per scan and shows the popup for the mode selected on Page 2.
+     * Deliberately a named Runnable: stopScan() cancels just this callback,
+     * whereas removeCallbacksAndMessages(null) would also drop pending model
+     * updates and break the Phase-4 result sequence.
+     */
+    private val scanRunnable = Runnable {
+        if (!scanning) return@Runnable
+        when (ProtectionState.getMode(this)) {
+            ScanMode.SAFE -> showSafePopup()
+            ScanMode.WARNING -> {
+                showWarningPopup()
+                showHighRiskNotification()
+            }
+        }
+    }
+
+    /** Page 2 can change the mode mid-scan: re-roll the pending window. */
+    private val modeChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ProtectionState.ACTION_MODE_CHANGED) return
+            if (scanning) armScanTimer()
+        }
+    }
+
     private val faceDetectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED) return
@@ -105,6 +150,7 @@ class FloatingBubbleService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         // ─ Phase 4: load design tokens once ──
+        cMint100 = ContextCompat.getColor(this, R.color.mint_100)
         cMint500 = ContextCompat.getColor(this, R.color.mint_500)
         cMint600 = ContextCompat.getColor(this, R.color.mint_600)
         cSurface = ContextCompat.getColor(this, R.color.surface)
@@ -132,6 +178,12 @@ class FloatingBubbleService : Service() {
             IntentFilter(ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(
+            this,
+            modeChangedReceiver,
+            IntentFilter(ProtectionState.ACTION_MODE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         showBubble()
     }
 
@@ -143,11 +195,15 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onDestroy() {
+        // Cancel the pending scan popup before the blanket handler flush.
+        handler.removeCallbacks(scanRunnable)
+        stopBlink()
         handler.removeCallbacksAndMessages(null)
         stopFloating()
         stopRipple()
         ProtectionState.setActive(this, false)
         unregisterReceiver(faceDetectionReceiver)
+        unregisterReceiver(modeChangedReceiver)
         removePanel()
         runCatching { windowManager.removeView(bubbleContainer) }
         super.onDestroy()
@@ -194,10 +250,12 @@ class FloatingBubbleService : Service() {
         bubbleContent.addView(bubbleIcon)
 
         bubbleContent.setOnTouchListener { _, event ->
+            // Offer every event to the double-click detector first. A drag can
+            // still begin afterwards, so the two gestures coexist.
+            gestureDetector.onTouchEvent(event)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     isDragging = false
-                    lastActionDownTime = System.currentTimeMillis()
                     initialX = bubbleLayoutParams.x
                     initialY = bubbleLayoutParams.y
                     initialTouchX = event.rawX
@@ -220,12 +278,9 @@ class FloatingBubbleService : Service() {
                     true
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (!isDragging && System.currentTimeMillis() - lastActionDownTime < 400) {
-                        togglePanel()
-                    } else if (isDragging) {
-                        // Vertical reposition only: always spring back to the left edge.
-                        snapToLeftEdge()
-                    }
+                    // Single tap is intentionally a no-op: spec §3 defines only
+                    // the double-click. A finished drag springs back to the edge.
+                    if (isDragging) snapToLeftEdge()
                     true
                 }
                 else -> false
@@ -328,7 +383,7 @@ class FloatingBubbleService : Service() {
     private fun startFloating() {
         if (isFloating) return
         isFloating = true
-        animateFloatingStep(-dp(5).toFloat())
+        animateFloatingStep(-floatOffset())
     }
 
     private fun animateFloatingStep(targetY: Float) {
@@ -339,7 +394,8 @@ class FloatingBubbleService : Service() {
             .setInterpolator(AccelerateDecelerateInterpolator())
             .withEndAction {
                 if (isFloating) {
-                    animateFloatingStep(if (targetY < 0) dp(5).toFloat() else -dp(5).toFloat())
+                    val offset = floatOffset()
+                    animateFloatingStep(if (targetY < 0) offset else -offset)
                 }
             }
             .start()
@@ -351,12 +407,205 @@ class FloatingBubbleService : Service() {
         bubbleContent.animate().translationY(0f).setDuration(250).start()
     }
 
-    private fun togglePanel() {
-        if (panel != null) {
-            removePanel()
-        } else {
-            showPanel()
+    private fun floatOffset() = dimen(R.dimen.bubble_float_offset).toFloat()
+
+    // ── Phase D: double-click scan state machine ──────────────────────────────
+
+    /** Double-click handler — the only bubble gesture defined by spec §3. */
+    private fun toggleScan() {
+        if (scanning) stopScan() else startScan()
+    }
+
+    /** Mint bubble + looping ripple, then arm the mode-specific popup timer. */
+    private fun startScan() {
+        scanning = true
+        rippleDuration = RIPPLE_DURATION_MS
+        render()
+        armScanTimer()
+    }
+
+    /**
+     * Returns the bubble to idle: cancels any pending popup, dismisses any
+     * displayed one and drops the ripple. Only [scanRunnable] is removed from
+     * the handler, so a manual stop leaves the model-driven Phase-4 result
+     * sequence intact.
+     */
+    private fun stopScan() {
+        scanning = false
+        handler.removeCallbacks(scanRunnable)
+        removePanel()
+        stopBlink()
+        render()
+    }
+
+    /** (Re)rolls the popup delay for the mode currently selected on Page 2. */
+    private fun armScanTimer() {
+        handler.removeCallbacks(scanRunnable)
+        handler.postDelayed(scanRunnable, scanDelayMs(ProtectionState.getMode(this)))
+    }
+
+    // ── Phase D: scan popups ──────────────────────────────────────────────────
+
+    /**
+     * SAFE-mode outcome: a green check on a mint well plus one secondary pill.
+     * Built from the same flat-card helpers as the risk panel, so the two
+     * overlays are visually identical apart from their content.
+     */
+    private fun showSafePopup() {
+        removePanel()
+
+        val icon = popupIconWell(
+            R.drawable.ic_check,
+            cRiskSafe,
+            cMint100,
+            getString(R.string.popup_safe_icon_desc)
+        )
+
+        val card = popupCard().apply {
+            addView(icon, popupIconParams())
+            addView(
+                popupMessage(getString(R.string.popup_safe_message)),
+                popupTextParams(dimen(R.dimen.space_lg))
+            )
+            addView(
+                singleAction(getString(R.string.popup_btn_close)) { removePanel() },
+                popupTextParams(dimen(R.dimen.space_xl))
+            )
         }
+        showOverlay(card)
+    }
+
+    /**
+     * WARNING-mode outcome: a terracotta alert glyph pulsing on a loop, with a
+     * destructive "Tắt bảo vệ" pill beside "Đóng".
+     */
+    private fun showWarningPopup() {
+        removePanel()
+
+        val icon = popupIconWell(
+            R.drawable.ic_alert,
+            cTerracotta,
+            cTerracottaSoft,
+            getString(R.string.popup_warning_icon_desc)
+        )
+
+        val card = popupCard().apply {
+            addView(icon, popupIconParams())
+            addView(
+                popupMessage(getString(R.string.popup_warning_message)),
+                popupTextParams(dimen(R.dimen.space_lg))
+            )
+            // actionRow already carries its own top padding.
+            addView(
+                actionRow(
+                    getString(R.string.popup_btn_close),
+                    getString(R.string.popup_btn_disable_protection),
+                    ::removePanel,
+                    ::stopProtection
+                ),
+                popupTextParams(0)
+            )
+        }
+        showOverlay(card)
+
+        blinkingIcon = icon
+        startBlink(icon)
+    }
+
+    /** White flat card shell shared by both popups: radius_card + 1dp hairline. */
+    private fun popupCard() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(22), dp(22), dp(22), dp(18))
+        background = rounded(cSurface, dp(24), cOutline)
+    }
+
+    /** Circular well holding a tinted line glyph — same pattern as the Home status icon. */
+    private fun popupIconWell(
+        @DrawableRes glyph: Int,
+        tint: Int,
+        wellColor: Int,
+        desc: String
+    ) = ImageView(this).apply {
+        setImageResource(glyph)
+        setColorFilter(tint)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        val pad = dimen(R.dimen.popup_icon_padding)
+        setPadding(pad, pad, pad, pad)
+        background = circle(wellColor)
+        contentDescription = desc
+    }
+
+    private fun popupIconParams() = LinearLayout.LayoutParams(
+        dimen(R.dimen.popup_icon_size),
+        dimen(R.dimen.popup_icon_size)
+    ).apply { gravity = Gravity.CENTER_HORIZONTAL }
+
+    private fun popupMessage(text: String) = TextView(this).apply {
+        gravity = Gravity.CENTER
+        setTextColor(cTextPrimary)
+        textSize = 15f
+        typeface = fontBold
+        setLineSpacing(dp(3).toFloat(), 1f)
+        this.text = text
+    }
+
+    private fun popupTextParams(topMargin: Int) =
+        LinearLayout.LayoutParams(-1, -2).apply { this.topMargin = topMargin }
+
+    /** Adds a flat overlay card centred on screen and records it as the live panel. */
+    private fun showOverlay(card: View) {
+        panel = card
+        windowManager.addView(
+            card,
+            overlayParams(
+                dp(PANEL_WIDTH_DP),
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER,
+                false
+            )
+        )
+    }
+
+    /**
+     * Pulses the warning glyph 1f -> [BLINK_MIN_ALPHA] -> 1f on a ~600 ms loop.
+     * [isBlinking] guards the withEndAction recursion: a *cancelled*
+     * ViewPropertyAnimator never runs its end action, but a completed one always
+     * does, so the flag is what actually stops the loop.
+     */
+    private fun startBlink(view: ImageView) {
+        isBlinking = true
+        view.alpha = 1f
+        blinkOut(view)
+    }
+
+    private fun blinkOut(view: ImageView) {
+        if (!isBlinking) return
+        view.animate()
+            .alpha(BLINK_MIN_ALPHA)
+            .setDuration(BLINK_DURATION_MS)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .withEndAction { if (isBlinking) blinkIn(view) }
+            .start()
+    }
+
+    private fun blinkIn(view: ImageView) {
+        if (!isBlinking) return
+        view.animate()
+            .alpha(1f)
+            .setDuration(BLINK_DURATION_MS)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .withEndAction { if (isBlinking) blinkOut(view) }
+            .start()
+    }
+
+    private fun stopBlink() {
+        isBlinking = false
+        blinkingIcon?.let {
+            it.animate().cancel()
+            it.alpha = 1f
+        }
+        blinkingIcon = null
     }
 
     private fun showPanel() {
@@ -459,8 +708,7 @@ class FloatingBubbleService : Service() {
             }
         }
 
-        panel = card
-        windowManager.addView(card, overlayParams(dp(310), WindowManager.LayoutParams.WRAP_CONTENT, Gravity.CENTER, false))
+        showOverlay(card)
     }
 
     private fun stopProtection() {
@@ -531,6 +779,8 @@ class FloatingBubbleService : Service() {
     }
 
     private fun removePanel() {
+        // Any blinking warning glyph lives inside the panel, so stop it first.
+        stopBlink()
         panel?.let { runCatching { windowManager.removeView(it) } }
         panel = null
     }
@@ -619,5 +869,8 @@ class FloatingBubbleService : Service() {
         private const val RIPPLE_DURATION_MS = 1_300L
         private const val RIPPLE_DURATION_FAST_MS = 700L
         private const val SNAP_DURATION_MS = 200L
+        private const val BLINK_DURATION_MS = 600L
+        private const val BLINK_MIN_ALPHA = 0.25f
+        private const val PANEL_WIDTH_DP = 310
     }
 }

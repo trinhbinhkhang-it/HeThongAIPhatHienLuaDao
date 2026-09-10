@@ -57,4 +57,8 @@
     <dimen name="bubble_drag_slop">6dp</dimen>
     <dimen name="bubble_float_offset">5dp</dimen>
     <dimen name="bubble_panel_margin">16dp</dimen>
+
+    <!-- ===== Scan popups (Safe / Warning overlays) ===== -->
+    <dimen name="popup_icon_size">56dp</dimen>
+    <dimen name="popup_icon_padding">14dp</dimen>
 </resources>

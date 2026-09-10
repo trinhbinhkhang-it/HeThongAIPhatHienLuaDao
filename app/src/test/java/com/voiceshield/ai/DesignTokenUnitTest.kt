@@ -34,14 +34,6 @@ class DesignTokenUnitTest {
     }
 
     @Test
-    fun protectionLevel_enum_isCorrect() {
-        // Verify ProtectionLevel enum (defined in MainActivity)
-        // This test verifies the enum structure exists
-        val levels = listOf("LOW", "MEDIUM", "HIGH")
-        assertEquals(3, levels.size)
-    }
-
-    @Test
     fun detectionResult_dataClass_works() {
         // Verify DetectionResult data class
         val result = DetectionResult(85, RiskLevel.SUSPICIOUS)
