@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pill soft button: mint_100 normal, mint_200 pressed. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:color="@color/mint_200"/>
+    <item android:color="@color/mint_100"/>
+</selector>

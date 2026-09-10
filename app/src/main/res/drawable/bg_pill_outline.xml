@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Status card: white card, radius_card, hairline. -->
+<!-- Pill outline: surface, radius_pill, hairline stroke. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/surface"/>
-    <corners android:radius="@dimen/radius_card"/>
+    <solid android:color="@color/color_pill_outline"/>
+    <corners android:radius="@dimen/radius_pill"/>
     <stroke
         android:width="@dimen/stroke_hairline"
         android:color="@color/outline"/>

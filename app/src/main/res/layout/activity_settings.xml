@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================
+     DeepCheck - Page 2 (Settings)
+     Scan-mode configuration for the floating bubble. Same header
+     pattern and design tokens as Page 1; no inline hex anywhere.
+     ============================================================ -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_page">
+
+    <!-- ===== Header: logo tile + wordmark ===== -->
+    <LinearLayout
+        android:id="@+id/app_header"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="@dimen/space_xl"
+        android:layout_marginEnd="@dimen/screen_margin"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:layout_width="@dimen/logo_tile"
+            android:layout_height="@dimen/logo_tile"
+            android:background="@drawable/bg_app_logo"
+            android:contentDescription="@string/app_name"
+            android:padding="@dimen/space_sm"
+            android:src="@drawable/ic_shield"
+            app:tint="@color/text_on_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.DeepCheck.Title"
+            android:textColor="@color/text_primary" />
+    </LinearLayout>
+
+    <!-- ===== Settings card ===== -->
+    <LinearLayout
+        android:id="@+id/settings_content"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_xxl"
+        android:layout_marginEnd="@dimen/space_xxl"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_header"
+        app:layout_constraintVertical_bias="0.30">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_status_card"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding">
+
+            <TextView
+                android:id="@+id/settings_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/settings_title"
+                android:textAppearance="@style/TextAppearance.DeepCheck.Headline"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/settings_config_header"
+                android:textAppearance="@style/TextAppearance.DeepCheck.Label"
+                android:textColor="@color/text_secondary" />
+
+            <!-- RadioButtons must stay direct children of RadioGroup so that
+                 checking one unchecks the other. -->
+            <RadioGroup
+                android:id="@+id/mode_group"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/mode_safe"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/mode_safe"
+                    android:textAppearance="@style/TextAppearance.DeepCheck.Body"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_xxl"
+                    android:layout_marginBottom="@dimen/space_md"
+                    android:text="@string/mode_safe_hint"
+                    android:textAppearance="@style/TextAppearance.DeepCheck.BodySmall"
+                    android:textColor="@color/text_secondary" />
+
+                <RadioButton
+                    android:id="@+id/mode_warning"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/mode_warning"
+                    android:textAppearance="@style/TextAppearance.DeepCheck.Body"
+                    android:textColor="@color/text_primary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_xxl"
+                    android:text="@string/mode_warning_hint"
+                    android:textAppearance="@style/TextAppearance.DeepCheck.BodySmall"
+                    android:textColor="@color/text_secondary" />
+            </RadioGroup>
+
+            <!-- Save (primary pill) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_save_config"
+                style="@style/Widget.DeepCheck.Button.Pill"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_save_config"
+                android:textColor="@color/text_on_primary" />
+
+            <!-- Back (outline pill) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_back_home"
+                style="@style/Widget.DeepCheck.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_back_home"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

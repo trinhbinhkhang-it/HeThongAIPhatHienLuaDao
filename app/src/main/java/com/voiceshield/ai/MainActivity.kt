@@ -1,39 +1,54 @@
 package com.voiceshield.ai
 
+import android.Manifest
+import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.res.ColorStateList
+import android.media.projection.MediaProjectionManager
 import android.net.Uri
-import android.Manifest
-import android.app.Activity
 import android.os.Build
 import android.os.Bundle
-import android.media.projection.MediaProjectionManager
 import android.provider.Settings
 import android.util.Log
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.ColorRes
+import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 
+/**
+ * Page 1 (Home).
+ *
+ * A single status card holds the shield well, title, description, state badge
+ * and the primary pill CTA that both activates and deactivates protection.
+ * The underlined version footer is the entry point to Page 2 (Settings), where
+ * the scan mode (Safe / Warning) is configured and persisted.
+ */
 class MainActivity : AppCompatActivity() {
 
     private var isProtecting = false
+    private var waitingForOverlayPermission = false
+
     private lateinit var protectionButton: MaterialButton
     private lateinit var protectionTitle: TextView
     private lateinit var protectionDescription: TextView
-    private lateinit var mediumLevelButton: MaterialButton
-    private lateinit var highLevelButton: MaterialButton
-    private var useHighProtection = false
-    private var waitingForOverlayPermission = false
+    private lateinit var protectionStatus: TextView
+    private lateinit var statusBadge: LinearLayout
+    private lateinit var statusBadgeIcon: ImageView
+    private lateinit var footerVersion: TextView
 
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (!isProtecting || result.resultCode != Activity.RESULT_OK || result.data == null) return@registerForActivityResult
-
+        if (!isProtecting || result.resultCode != Activity.RESULT_OK || result.data == null) {
+            return@registerForActivityResult
+        }
         val captureIntent = Intent(this, ScreenCaptureService::class.java)
             .putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
             .putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, result.data)
@@ -59,29 +74,67 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        protectionButton = findViewById(R.id.protection_button)
+        protectionButton = findViewById(R.id.btn_start_protection)
         protectionTitle = findViewById(R.id.protection_title)
         protectionDescription = findViewById(R.id.protection_description)
-        mediumLevelButton = findViewById(R.id.protection_level_medium)
-        highLevelButton = findViewById(R.id.protection_level_high)
+        protectionStatus = findViewById(R.id.protection_status)
+        statusBadge = findViewById(R.id.status_badge)
+        statusBadgeIcon = findViewById(R.id.status_badge_icon)
+        footerVersion = findViewById(R.id.footer_version)
 
         protectionButton.setOnClickListener {
-            if (!isProtecting) {
-                startProtection()
-            } else {
-                stopProtection()
-            }
+            if (isProtecting) stopProtection() else startProtection()
         }
-        mediumLevelButton.setOnClickListener { selectProtectionLevel(false) }
-        highLevelButton.setOnClickListener { selectProtectionLevel(true) }
-        selectProtectionLevel(false)
+        // The footer version doubles as the link into Page 2 (Settings).
+        footerVersion.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
         updateProtectionState(ProtectionState.isActive(this))
+    }
+
+    /**
+     * CTA + badge state machine.
+     * Inactive -> mint pill "Kich hoat ung dung" and a terracotta alert badge.
+     * Active   -> terracotta pill "Tat ung dung" and a mint check badge.
+     */
+    private fun updateProtectionState(active: Boolean) {
+        isProtecting = active
+        protectionTitle.text = getString(R.string.protection_title)
+
+        if (active) {
+            protectionDescription.text = getString(R.string.protection_active_description)
+            protectionButton.text = getString(R.string.btn_deactivate_app)
+            protectionButton.backgroundTintList = colorStateList(R.color.terracotta_soft)
+            protectionButton.setTextColor(color(R.color.terracotta_deep))
+            protectionButton.rippleColor = colorStateList(R.color.terracotta)
+
+            protectionStatus.text = getString(R.string.status_active)
+            statusBadge.setBackgroundResource(R.drawable.bg_badge_mint)
+            statusBadgeIcon.setImageResource(R.drawable.ic_check)
+            statusBadgeIcon.imageTintList = colorStateList(R.color.mint_600)
+            protectionStatus.setTextColor(color(R.color.ink_on_mint))
+        } else {
+            protectionDescription.text = getString(R.string.protection_ready_description)
+            protectionButton.text = getString(R.string.btn_activate_app)
+            protectionButton.backgroundTintList = colorStateList(R.color.mint_500)
+            protectionButton.setTextColor(color(R.color.text_on_primary))
+            protectionButton.rippleColor = colorStateList(R.color.mint_600)
+
+            protectionStatus.text = getString(R.string.status_inactive)
+            statusBadge.setBackgroundResource(R.drawable.bg_badge_terracotta)
+            statusBadgeIcon.setImageResource(R.drawable.ic_alert)
+            statusBadgeIcon.imageTintList = colorStateList(R.color.terracotta_deep)
+            protectionStatus.setTextColor(color(R.color.terracotta_deep))
+        }
     }
 
     private fun startProtection() {
         if (!Settings.canDrawOverlays(this)) {
             waitingForOverlayPermission = true
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            startActivity(
+                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            )
             return
         }
         enableProtection()
@@ -89,9 +142,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun enableProtection() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIFICATION_PERMISSION_REQUEST)
+            requestPermissions(
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                NOTIFICATION_PERMISSION_REQUEST
+            )
         }
         ProtectionState.setActive(this, true)
         updateProtectionState(true)
@@ -106,36 +163,14 @@ class MainActivity : AppCompatActivity() {
         updateProtectionState(false)
     }
 
+    /** The scan mode now travels through [ProtectionState], not through intent extras. */
     private fun startFloatingBubble() {
-        val intent = Intent(this, FloatingBubbleService::class.java)
-            .putExtra(FloatingBubbleService.EXTRA_HIGH_PROTECTION, useHighProtection)
-        startService(intent)
+        startService(Intent(this, FloatingBubbleService::class.java))
     }
 
     private fun requestScreenCapture() {
         val manager = getSystemService(MediaProjectionManager::class.java)
         screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
-    }
-
-    private fun selectProtectionLevel(high: Boolean) {
-        useHighProtection = high
-        val selected = "#1D4ED8"
-        val unselected = "#1A2438"
-        mediumLevelButton.setBackgroundColor(android.graphics.Color.parseColor(if (high) unselected else selected))
-        highLevelButton.setBackgroundColor(android.graphics.Color.parseColor(if (high) selected else unselected))
-    }
-
-    private fun updateProtectionState(active: Boolean) {
-        isProtecting = active
-        if (active) {
-            protectionTitle.text = "Bảo vệ cuộc gọi"
-            protectionDescription.text = "Bubble bảo vệ đang hoạt động trên các ứng dụng khác."
-            protectionButton.text = "Tắt bảo vệ"
-        } else {
-            protectionTitle.text = "Bảo vệ cuộc gọi"
-            protectionDescription.text = "Bật bảo vệ để DeepCheck sẵn sàng hỗ trợ bạn khi đang gọi điện."
-            protectionButton.text = "Bật bảo vệ"
-        }
     }
 
     override fun onStart() {
@@ -168,6 +203,10 @@ class MainActivity : AppCompatActivity() {
             if (Settings.canDrawOverlays(this)) enableProtection()
         }
     }
+
+    private fun color(@ColorRes id: Int) = ContextCompat.getColor(this, id)
+
+    private fun colorStateList(@ColorRes id: Int) = ColorStateList.valueOf(color(id))
 
     private companion object {
         const val TAG = "DeepCheckMainActivity"

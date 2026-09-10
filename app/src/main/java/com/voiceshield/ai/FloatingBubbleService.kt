@@ -1,5 +1,6 @@
 package com.voiceshield.ai
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Typeface
 import android.view.MotionEvent
 import android.graphics.Color
 import android.graphics.PixelFormat
@@ -23,10 +25,13 @@ import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.annotation.DimenRes
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import kotlin.math.abs
 
 /** A UI-only boundary: replace FakeDetectionResult with the model result later. */
 data class DetectionResult(val score: Int, val riskLevel: RiskLevel)
@@ -37,17 +42,24 @@ class FloatingBubbleService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var bubbleContainer: FrameLayout
     private lateinit var bubbleContent: FrameLayout
-    private lateinit var bubbleText: TextView
+    private lateinit var bubbleIcon: ImageView
     private lateinit var ripple: View
     private lateinit var bubbleLayoutParams: WindowManager.LayoutParams
     private val handler = Handler(Looper.getMainLooper())
     private var panel: View? = null
     private var current = DetectionResult(0, RiskLevel.NO_RESULT)
-    private var highProtection = false
     private var monitoringStarted = false
     private var resultSequenceStarted = false
     private var participantFaceDetected = false
     private var isFloating = false
+
+    /**
+     * True while a scan is running. Drives the bubble visual state:
+     * idle = neutral surface + hairline + secondary shield, no ripple;
+     * scanning = mint bubble + white shield + looping ripple.
+     */
+    private var scanning = false
+    private var rippleDuration = RIPPLE_DURATION_MS
 
     private var isDragging = false
     private var lastActionDownTime = 0L
@@ -55,6 +67,27 @@ class FloatingBubbleService : Service() {
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+
+    // ── Phase 4: design-token colours loaded once ──
+    private var cMint500 = 0
+    private var cMint600 = 0
+    private var cSurface = 0
+    private var cOutline = 0
+    private var cSurfaceAlt = 0
+    private var cTextPrimary = 0
+    private var cTextSecondary = 0
+    private var cTextOnPrimary = 0
+    private var cTerracotta = 0
+    private var cTerracottaSoft = 0
+    private var cTerracottaDeep = 0
+    private var cRiskSafe = 0
+    private var cRiskCaution = 0
+    private var cRiskDanger = 0
+    private var cScrim = 0
+
+    // ─ Nunito font (system sans-serif-medium fallback) ──
+    private lateinit var fontMedium: Typeface
+    private lateinit var fontBold: Typeface
 
     private val faceDetectionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -70,6 +103,28 @@ class FloatingBubbleService : Service() {
         // The main screen has already enabled protection before it starts this service.
         monitoringStarted = ProtectionState.isActive(this)
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+
+        // ─ Phase 4: load design tokens once ──
+        cMint500 = ContextCompat.getColor(this, R.color.mint_500)
+        cMint600 = ContextCompat.getColor(this, R.color.mint_600)
+        cSurface = ContextCompat.getColor(this, R.color.surface)
+        cOutline = ContextCompat.getColor(this, R.color.outline)
+        cSurfaceAlt = ContextCompat.getColor(this, R.color.surface_alt)
+        cTextPrimary = ContextCompat.getColor(this, R.color.text_primary)
+        cTextSecondary = ContextCompat.getColor(this, R.color.text_secondary)
+        cTextOnPrimary = ContextCompat.getColor(this, R.color.text_on_primary)
+        cTerracotta = ContextCompat.getColor(this, R.color.terracotta)
+        cTerracottaSoft = ContextCompat.getColor(this, R.color.terracotta_soft)
+        cTerracottaDeep = ContextCompat.getColor(this, R.color.terracotta_deep)
+        cRiskSafe = ContextCompat.getColor(this, R.color.risk_safe)
+        cRiskCaution = ContextCompat.getColor(this, R.color.risk_caution)
+        cRiskDanger = ContextCompat.getColor(this, R.color.risk_danger)
+        cScrim = ContextCompat.getColor(this, R.color.scrim)
+
+        // Nunito font — system sans-serif-medium as flat-design fallback
+        fontMedium = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        fontBold = Typeface.create("sans-serif-medium", Typeface.BOLD)
+
         createNotificationChannel()
         ContextCompat.registerReceiver(
             this,
@@ -81,9 +136,7 @@ class FloatingBubbleService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.hasExtra(EXTRA_HIGH_PROTECTION) == true) {
-            highProtection = intent.getBooleanExtra(EXTRA_HIGH_PROTECTION, false)
-        }
+        // The scan mode is read straight from ProtectionState — no intent extras.
         monitoringStarted = true
         ProtectionState.setActive(this, true)
         return START_NOT_STICKY
@@ -92,6 +145,7 @@ class FloatingBubbleService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         stopFloating()
+        stopRipple()
         ProtectionState.setActive(this, false)
         unregisterReceiver(faceDetectionReceiver)
         removePanel()
@@ -103,6 +157,11 @@ class FloatingBubbleService : Service() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showBubble() {
+        val containerSize = dimen(R.dimen.bubble_container_size)
+        val bubbleSize = dimen(R.dimen.bubble_size)
+        val edgeMargin = dimen(R.dimen.bubble_edge_margin)
+        val dragSlop = dimen(R.dimen.bubble_drag_slop)
+
         bubbleContainer = FrameLayout(this).apply {
             clipChildren = false
             clipToPadding = false
@@ -114,21 +173,25 @@ class FloatingBubbleService : Service() {
         }
 
         ripple = View(this).apply {
-            layoutParams = FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER)
-            background = circle(Color.TRANSPARENT, COLOR_BLUE, 2)
+            layoutParams = FrameLayout.LayoutParams(bubbleSize, bubbleSize, Gravity.CENTER)
+            background = circle(Color.TRANSPARENT, cMint500, 2)
+            alpha = 0f
         }
 
-        bubbleText = TextView(this).apply {
-            layoutParams = FrameLayout.LayoutParams(dp(58), dp(58), Gravity.CENTER)
-            gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            setLineSpacing(0f, .9f)
-            background = circle(COLOR_BLUE)
+        // Shield glyph replaces the old "◉" TextView; render() retints it per state.
+        bubbleIcon = ImageView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(bubbleSize, bubbleSize, Gravity.CENTER)
+            setImageResource(R.drawable.ic_shield)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val pad = dimen(R.dimen.bubble_icon_padding)
+            setPadding(pad, pad, pad, pad)
+            background = circle(cSurface, cOutline, 1)
+            setColorFilter(cTextSecondary)
+            contentDescription = getString(R.string.bubble_desc_idle)
         }
 
         bubbleContent.addView(ripple)
-        bubbleContent.addView(bubbleText)
+        bubbleContent.addView(bubbleIcon)
 
         bubbleContent.setOnTouchListener { _, event ->
             when (event.action) {
@@ -144,12 +207,14 @@ class FloatingBubbleService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - initialTouchX).toInt()
                     val dy = (event.rawY - initialTouchY).toInt()
-                    if (!isDragging && (kotlin.math.abs(dx) > dp(6) || kotlin.math.abs(dy) > dp(6))) {
+                    if (!isDragging && (abs(dx) > dragSlop || abs(dy) > dragSlop)) {
                         isDragging = true
                     }
                     if (isDragging) {
-                        bubbleLayoutParams.x = initialX - dx
-                        bubbleLayoutParams.y = initialY - dy
+                        // Gravity.START: x grows rightwards, so the delta is ADDED.
+                        // (Under the old Gravity.END it had to be subtracted.)
+                        bubbleLayoutParams.x = (initialX + dx).coerceIn(0, maxX())
+                        bubbleLayoutParams.y = (initialY - dy).coerceIn(0, maxY())
                         windowManager.updateViewLayout(bubbleContainer, bubbleLayoutParams)
                     }
                     true
@@ -157,6 +222,9 @@ class FloatingBubbleService : Service() {
                 MotionEvent.ACTION_UP -> {
                     if (!isDragging && System.currentTimeMillis() - lastActionDownTime < 400) {
                         togglePanel()
+                    } else if (isDragging) {
+                        // Vertical reposition only: always spring back to the left edge.
+                        snapToLeftEdge()
                     }
                     true
                 }
@@ -164,63 +232,97 @@ class FloatingBubbleService : Service() {
             }
         }
 
-        bubbleContainer.addView(bubbleContent, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER))
+        bubbleContainer.addView(
+            bubbleContent,
+            FrameLayout.LayoutParams(bubbleSize, bubbleSize, Gravity.CENTER)
+        )
 
-        bubbleLayoutParams = overlayParams(dp(100), dp(100), Gravity.BOTTOM or Gravity.END, true).apply {
-            x = dp(14)
-            y = dp(90)
+        // Pinned to the LEFT edge (AssistiveTouch style); vertically draggable.
+        bubbleLayoutParams = overlayParams(
+            containerSize,
+            containerSize,
+            Gravity.BOTTOM or Gravity.START,
+            true
+        ).apply {
+            x = edgeMargin
+            y = dimen(R.dimen.bubble_bottom_margin)
         }
 
         windowManager.addView(bubbleContainer, bubbleLayoutParams)
         render()
     }
 
+    /**
+     * Idle     -> neutral surface bubble, hairline outline, secondary-tinted
+     *             shield, no ripple, gentle float.
+     * Scanning -> mint bubble (escalating to the risk colour once the model
+     *             reports), white shield, looping ripple, no float.
+     */
     private fun render() {
-        val (color, label) = when (current.riskLevel) {
-            RiskLevel.NO_RESULT -> COLOR_BLUE to ""
-            RiskLevel.NORMAL -> COLOR_GREEN to "${current.score}%"
-            RiskLevel.SUSPICIOUS -> COLOR_YELLOW to "${current.score}%"
-            RiskLevel.HIGH_RISK -> COLOR_RED to "${current.score}%"
+        if (!scanning) {
+            bubbleIcon.background = circle(cSurface, cOutline, 1)
+            bubbleIcon.setColorFilter(cTextSecondary)
+            bubbleIcon.contentDescription = getString(R.string.bubble_desc_idle)
+            stopRipple()
+            startFloating()
+            return
         }
-        bubbleText.text = if (label.isEmpty()) "◉" else "◉\n$label"
-        bubbleText.background = circle(color)
+
+        val level = current.riskLevel
+        val escalated = level == RiskLevel.SUSPICIOUS || level == RiskLevel.HIGH_RISK
+        val color = if (escalated) colorFor(level) else cMint500
+        val duration = if (level == RiskLevel.HIGH_RISK) RIPPLE_DURATION_FAST_MS else RIPPLE_DURATION_MS
+
+        bubbleIcon.background = circle(color)
+        bubbleIcon.setColorFilter(cTextOnPrimary)
+        bubbleIcon.contentDescription = getString(R.string.bubble_desc_scanning)
         ripple.background = circle(Color.TRANSPARENT, color, 2)
-        bubbleContainer.contentDescription = if (label.isEmpty()) {
-            "DeepCheck: đang bảo vệ"
-        } else {
-            "DeepCheck: ${current.riskLevel.description()}, $label"
-        }
-        animateBubble(current.riskLevel)
+        stopFloating()
+        startRippleLoop(duration)
     }
 
-    private fun animateBubble(level: RiskLevel) {
+    /** Flips the bubble between the idle and scanning visual states. */
+    private fun setScanning(value: Boolean) {
+        if (scanning == value) return
+        scanning = value
+        render()
+    }
+
+    /** Looping ripple used while scanning; re-armed from its own end action. */
+    private fun startRippleLoop(duration: Long) {
+        rippleDuration = duration
         ripple.animate().cancel()
-        when (level) {
-            RiskLevel.NO_RESULT -> {
-                startFloating()
+        ripple.alpha = 0.75f
+        ripple.scaleX = 0.9f
+        ripple.scaleY = 0.9f
+        ripple.animate()
+            .scaleX(1.35f)
+            .scaleY(1.35f)
+            .alpha(0f)
+            .setDuration(duration)
+            .withEndAction { if (scanning) startRippleLoop(rippleDuration) }
+            .start()
+    }
+
+    private fun stopRipple() {
+        ripple.animate().cancel()
+        ripple.alpha = 0f
+        ripple.scaleX = 1f
+        ripple.scaleY = 1f
+    }
+
+    /** Springs the bubble back to the left edge, keeping the dragged vertical offset. */
+    private fun snapToLeftEdge() {
+        val target = dimen(R.dimen.bubble_edge_margin)
+        if (bubbleLayoutParams.x == target) return
+        ValueAnimator.ofInt(bubbleLayoutParams.x, target).apply {
+            duration = SNAP_DURATION_MS
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener {
+                bubbleLayoutParams.x = it.animatedValue as Int
+                runCatching { windowManager.updateViewLayout(bubbleContainer, bubbleLayoutParams) }
             }
-            RiskLevel.NORMAL -> {
-                stopFloating()
-            }
-            RiskLevel.SUSPICIOUS, RiskLevel.HIGH_RISK -> {
-                stopFloating()
-                val duration = if (level == RiskLevel.HIGH_RISK) 700L else 1300L
-                ripple.alpha = 0.75f
-                ripple.scaleX = 0.9f
-                ripple.scaleY = 0.9f
-                ripple.animate()
-                    .scaleX(1.35f)
-                    .scaleY(1.35f)
-                    .alpha(0f)
-                    .setDuration(duration)
-                    .withEndAction {
-                        if (current.riskLevel == level) {
-                            animateBubble(level)
-                        }
-                    }
-                    .start()
-            }
-        }
+        }.start()
     }
 
     private fun startFloating() {
@@ -259,54 +361,104 @@ class FloatingBubbleService : Service() {
 
     private fun showPanel() {
         removePanel()
+        // Flat white card: radius_card, 1dp hairline, no shadow.
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(22), dp(22), dp(22), dp(18))
-            background = rounded(COLOR_SURFACE, dp(20), COLOR_LINE)
+            background = rounded(cSurface, dp(24), cOutline)
         }
+
+        // Title: text_primary, Nunito Bold
         val title = TextView(this).apply {
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(cTextPrimary)
             textSize = 16f
-            setTypeface(typeface, 1)
-        }
-        val score = TextView(this).apply {
-            gravity = Gravity.CENTER
-            setTextColor(colorFor(current.riskLevel))
-            textSize = 28f
-            setPadding(0, dp(18), 0, 0)
-        }
-        val message = TextView(this).apply {
-            gravity = Gravity.CENTER
-            setTextColor(COLOR_MUTED)
-            textSize = 14f
-            setLineSpacing(dp(3).toFloat(), 1f)
-            setPadding(0, dp(10), 0, 0)
+            typeface = fontBold
         }
         card.addView(title, LinearLayout.LayoutParams(-1, -2))
+
         when (current.riskLevel) {
             RiskLevel.NO_RESULT -> {
-                title.text = "BẢO VỆ CUỘC GỌI"
-                message.text = "Đang chờ phát hiện khuôn mặt trong cuộc gọi video."
+                title.text = getString(R.string.panel_title)
+                val message = TextView(this).apply {
+                    gravity = Gravity.CENTER
+                    setTextColor(cTextSecondary)
+                    textSize = 14f
+                    typeface = fontMedium
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setPadding(0, dp(10), 0, 0)
+                    text = getString(R.string.panel_message_no_result)
+                }
                 card.addView(message, LinearLayout.LayoutParams(-1, -2))
                 card.addView(
-                    actionRow("Tiếp tục theo dõi", "Tắt bảo vệ", ::removePanel, ::stopProtection),
+                    actionRow(getString(R.string.panel_btn_continue), getString(R.string.panel_btn_stop), ::removePanel, ::stopProtection),
                     LinearLayout.LayoutParams(-1, -2)
                 )
             }
             else -> {
-                title.text = if (current.riskLevel == RiskLevel.HIGH_RISK) "⚠ RỦI RO CAO" else "ĐANG PHÂN TÍCH"
-                score.text = "${current.score}%\n${current.riskLevel.label()}"
-                message.text = current.riskLevel.message()
+                // HIGH_RISK: ic_alert line icon tinted terracotta (no text glyph)
+                if (current.riskLevel == RiskLevel.HIGH_RISK) {
+                    val alertIcon = ImageView(this).apply {
+                        setImageResource(R.drawable.ic_alert)
+                        setColorFilter(cTerracotta)
+                        layoutParams = LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                            topMargin = dp(4)
+                        }
+                        contentDescription = getString(R.string.panel_alert_content_desc)
+                    }
+                    card.addView(alertIcon, LinearLayout.LayoutParams(-2, -2).apply {
+                        gravity = Gravity.CENTER
+                    })
+                }
+
+                // Score: Display size, Nunito Bold, risk colour
+                val score = TextView(this).apply {
+                    gravity = Gravity.CENTER
+                    setTextColor(colorFor(current.riskLevel))
+                    textSize = 28f
+                    typeface = fontBold
+                    setPadding(0, dp(12), 0, 0)
+                    text = "${current.score}%"
+                }
                 card.addView(score, LinearLayout.LayoutParams(-1, -2))
+
+                // Terracotta "badge đánh giá" pill for the risk label
+                val badge = TextView(this).apply {
+                    gravity = Gravity.CENTER
+                    setTextColor(cTerracottaDeep)
+                    textSize = 11f
+                    typeface = fontBold
+                    setPadding(dp(14), dp(5), dp(14), dp(5))
+                    background = pill(cTerracottaSoft)
+                    text = current.riskLevel.label()
+                    letterSpacing = 0.06f
+                }
+                card.addView(badge, LinearLayout.LayoutParams(-2, -2).apply {
+                    topMargin = dp(10)
+                    gravity = Gravity.CENTER
+                })
+
+                // Message: text_secondary
+                val message = TextView(this).apply {
+                    gravity = Gravity.CENTER
+                    setTextColor(cTextSecondary)
+                    textSize = 14f
+                    typeface = fontMedium
+                    setLineSpacing(dp(3).toFloat(), 1f)
+                    setPadding(0, dp(12), 0, 0)
+                    text = current.riskLevel.message()
+                }
                 card.addView(message, LinearLayout.LayoutParams(-1, -2))
+
+                // Action row: secondary + danger
                 card.addView(
-                    actionRow("Tiếp tục theo dõi", "Tắt bảo vệ", ::removePanel, ::stopProtection),
+                    actionRow(getString(R.string.panel_btn_continue), getString(R.string.panel_btn_stop), ::removePanel, ::stopProtection),
                     LinearLayout.LayoutParams(-1, -2)
                 )
             }
         }
+
         panel = card
         windowManager.addView(card, overlayParams(dp(310), WindowManager.LayoutParams.WRAP_CONTENT, Gravity.CENTER, false))
     }
@@ -322,7 +474,9 @@ class FloatingBubbleService : Service() {
         if (!monitoringStarted || resultSequenceStarted) return
 
         resultSequenceStarted = true
-        if (highProtection) {
+        // A detected participant face switches the bubble into its scanning state.
+        setScanning(true)
+        if (ProtectionState.getMode(this) == ScanMode.WARNING) {
             handler.postDelayed({ update(DetectionResult(58, RiskLevel.SUSPICIOUS)) }, 900)
             handler.postDelayed({
                 update(DetectionResult(84, RiskLevel.HIGH_RISK))
@@ -339,18 +493,40 @@ class FloatingBubbleService : Service() {
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(20), 0, 0)
-            addView(button(left, false, onLeft), LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
-            addView(button(right, true, onRight), LinearLayout.LayoutParams(0, dp(46), 1f))
+            // Left = secondary (outline pill), Right = danger (terracotta-soft pill)
+            addView(button(left, ButtonVariant.SECONDARY, onLeft),
+                LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) })
+            addView(button(right, ButtonVariant.DANGER, onRight),
+                LinearLayout.LayoutParams(0, dp(46), 1f))
         }
 
-    private fun singleAction(text: String, action: () -> Unit): View = button(text, false, action)
+    private fun singleAction(text: String, action: () -> Unit): View =
+        button(text, ButtonVariant.SECONDARY, action)
 
-    private fun button(text: String, primary: Boolean, action: () -> Unit) = Button(this).apply {
+    private enum class ButtonVariant { PRIMARY, SECONDARY, DANGER }
+
+    private fun button(text: String, variant: ButtonVariant, action: () -> Unit) = Button(this).apply {
         this.text = text
         isAllCaps = false
-        setTextColor(Color.WHITE)
         textSize = 13f
-        background = rounded(if (primary) COLOR_BLUE else COLOR_SURFACE_2, dp(12), if (primary) COLOR_BLUE else COLOR_LINE)
+        typeface = fontMedium
+        when (variant) {
+            ButtonVariant.PRIMARY -> {
+                // mint_500 bg, white text, pill shape — CTA, ≥14sp bold for AA-large
+                setTextColor(cTextOnPrimary)
+                background = pill(cMint500)
+            }
+            ButtonVariant.SECONDARY -> {
+                // surface bg, text_secondary text, outline stroke, pill shape
+                setTextColor(cTextSecondary)
+                background = pillOutline(cSurface, cOutline)
+            }
+            ButtonVariant.DANGER -> {
+                // terracotta_soft bg, terracotta_deep text, pill shape
+                setTextColor(cTerracottaDeep)
+                background = pill(cTerracottaSoft)
+            }
+        }
         setOnClickListener { action() }
     }
 
@@ -362,10 +538,11 @@ class FloatingBubbleService : Service() {
     private fun showHighRiskNotification() {
         val openApp = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, WARNING_CHANNEL)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("CẢNH BÁO CUỘC GỌI")
-            .setContentText("Có dấu hiệu nghi ngờ thao túng khuôn mặt. Không chia sẻ OTP hoặc thông tin nhạy cảm.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Có dấu hiệu nghi ngờ thao túng khuôn mặt trong cuộc gọi. Không chia sẻ OTP hoặc thông tin nhạy cảm."))
+            .setSmallIcon(R.drawable.ic_alert)
+            .setColor(cMint500)
+            .setContentTitle(getString(R.string.notif_warning_title))
+            .setContentText(getString(R.string.notif_warning_text))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.notif_warning_big_text)))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(openApp)
             .setAutoCancel(true)
@@ -376,7 +553,7 @@ class FloatingBubbleService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java).createNotificationChannel(
-                NotificationChannel(WARNING_CHANNEL, "Cảnh báo DeepCheck", NotificationManager.IMPORTANCE_HIGH)
+                NotificationChannel(WARNING_CHANNEL, getString(R.string.notif_warning_channel), NotificationManager.IMPORTANCE_HIGH)
             )
         }
     }
@@ -392,29 +569,55 @@ class FloatingBubbleService : Service() {
         shape = GradientDrawable.OVAL; setColor(color); if (stroke != null) setStroke(dp(strokeWidth), stroke)
     }
     private fun rounded(color: Int, radius: Int, stroke: Int) = GradientDrawable().apply { setColor(color); cornerRadius = radius.toFloat(); setStroke(dp(1), stroke) }
-    private fun colorFor(level: RiskLevel) = when (level) { RiskLevel.NO_RESULT -> COLOR_BLUE; RiskLevel.NORMAL -> COLOR_GREEN; RiskLevel.SUSPICIOUS -> COLOR_YELLOW; RiskLevel.HIGH_RISK -> COLOR_RED }
+    /** Pill shape: solid colour, radius_pill (999dp), no stroke. */
+    private fun pill(color: Int) = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(color)
+        cornerRadius = dp(999).toFloat()
+    }
+    /** Pill outline: surface bg, radius_pill, 1dp hairline stroke. */
+    private fun pillOutline(bg: Int, strokeColor: Int) = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        setColor(bg)
+        cornerRadius = dp(999).toFloat()
+        setStroke(dp(1), strokeColor)
+    }
+    private fun colorFor(level: RiskLevel) = when (level) {
+        RiskLevel.NO_RESULT -> cMint500
+        RiskLevel.NORMAL -> cRiskSafe
+        RiskLevel.SUSPICIOUS -> cRiskCaution
+        RiskLevel.HIGH_RISK -> cRiskDanger
+    }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
 
-    private fun RiskLevel.label() = when (this) { RiskLevel.NO_RESULT -> "CHƯA CÓ KẾT QUẢ"; RiskLevel.NORMAL -> "BÌNH THƯỜNG"; RiskLevel.SUSPICIOUS -> "NGHI NGỜ"; RiskLevel.HIGH_RISK -> "RỦI RO CAO" }
-    private fun RiskLevel.description() = label().lowercase()
+    private fun dimen(@DimenRes id: Int) = resources.getDimensionPixelSize(id)
+
+    /** Horizontal drag bound: keeps the whole bubble on screen. */
+    private fun maxX() =
+        (resources.displayMetrics.widthPixels - dimen(R.dimen.bubble_container_size)).coerceAtLeast(0)
+
+    /** Vertical drag bound (Gravity.BOTTOM: y grows upwards). */
+    private fun maxY() =
+        (resources.displayMetrics.heightPixels - dimen(R.dimen.bubble_container_size)).coerceAtLeast(0)
+
+    private fun RiskLevel.label() = when (this) {
+        RiskLevel.NO_RESULT -> getString(R.string.risk_no_result)
+        RiskLevel.NORMAL -> getString(R.string.risk_normal)
+        RiskLevel.SUSPICIOUS -> getString(R.string.risk_suspicious)
+        RiskLevel.HIGH_RISK -> getString(R.string.risk_high)
+    }
     private fun RiskLevel.message() = when (this) {
-        RiskLevel.NORMAL -> "Chưa phát hiện dấu hiệu bất thường đáng kể."
-        RiskLevel.SUSPICIOUS -> "Có một số dấu hiệu bất thường trong hình ảnh."
-        RiskLevel.HIGH_RISK -> "Phát hiện dấu hiệu có thể liên quan đến face-swapping.\n\nKhông chia sẻ OTP hoặc thông tin nhạy cảm."
+        RiskLevel.NORMAL -> getString(R.string.risk_msg_normal)
+        RiskLevel.SUSPICIOUS -> getString(R.string.risk_msg_suspicious)
+        RiskLevel.HIGH_RISK -> getString(R.string.risk_msg_high)
         RiskLevel.NO_RESULT -> ""
     }
 
     companion object {
-        const val EXTRA_HIGH_PROTECTION = "high_protection"
         private const val WARNING_CHANNEL = "high_risk_warning"
         private const val WARNING_NOTIFICATION_ID = 42
-        private val COLOR_BLUE = Color.rgb(22, 119, 255)
-        private val COLOR_GREEN = Color.rgb(52, 211, 153)
-        private val COLOR_YELLOW = Color.rgb(251, 191, 36)
-        private val COLOR_RED = Color.rgb(255, 71, 87)
-        private val COLOR_SURFACE = Color.rgb(18, 26, 43)
-        private val COLOR_SURFACE_2 = Color.rgb(26, 36, 56)
-        private val COLOR_LINE = Color.rgb(38, 49, 74)
-        private val COLOR_MUTED = Color.rgb(139, 150, 170)
+        private const val RIPPLE_DURATION_MS = 1_300L
+        private const val RIPPLE_DURATION_FAST_MS = 700L
+        private const val SNAP_DURATION_MS = 200L
     }
 }

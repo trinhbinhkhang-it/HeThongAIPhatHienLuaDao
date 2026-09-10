@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================
+     DeepCheck - Page 1 (Home)
+     Flat pastel mint + terracotta accent; every colour/dimen is a
+     design token, no inline hex anywhere.
+     Structure: header -> status card (shield well, title, description,
+     status badge, primary CTA) -> version footer link to Page 2.
+     ============================================================ -->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0E17">
+    android:background="@color/bg_page">
 
+    <!-- ===== Header: logo tile + wordmark ===== -->
     <LinearLayout
         android:id="@+id/app_header"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="20dp"
-        android:layout_marginTop="18dp"
-        android:layout_marginEnd="20dp"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="@dimen/space_xl"
+        android:layout_marginEnd="@dimen/screen_margin"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
@@ -19,33 +27,33 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <ImageView
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="@dimen/logo_tile"
+            android:layout_height="@dimen/logo_tile"
             android:background="@drawable/bg_app_logo"
-            android:padding="8dp"
+            android:contentDescription="@string/app_name"
+            android:padding="@dimen/space_sm"
             android:src="@drawable/ic_shield"
-            app:tint="#FFFFFF"
-            android:contentDescription="@string/app_name" />
+            app:tint="@color/text_on_primary" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="10dp"
-            android:text="DeepCheck"
-            android:textColor="#F1F5F9"
-            android:textSize="19sp"
-            android:textStyle="bold" />
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.DeepCheck.Title"
+            android:textColor="@color/text_primary" />
     </LinearLayout>
 
+    <!-- ===== Home content: the single status card ===== -->
     <LinearLayout
         android:id="@+id/home_content"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="24dp"
-        android:layout_marginEnd="24dp"
+        android:layout_marginStart="@dimen/space_xxl"
+        android:layout_marginEnd="@dimen/space_xxl"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        app:layout_constraintBottom_toTopOf="@id/bottom_navigation"
+        app:layout_constraintBottom_toTopOf="@id/footer_version"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/app_header"
@@ -57,172 +65,100 @@
             android:background="@drawable/bg_status_card"
             android:gravity="center_horizontal"
             android:orientation="vertical"
-            android:padding="28dp">
+            android:padding="@dimen/card_padding">
 
+            <!-- Shield well: mint_50 oval + mint_600 line icon -->
             <ImageView
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:id="@+id/status_icon"
+                android:layout_width="@dimen/status_icon_well"
+                android:layout_height="@dimen/status_icon_well"
                 android:background="@drawable/bg_status_icon"
-                android:padding="14dp"
-                android:src="@drawable/ic_radar"
-                app:tint="#22D3C8"
-                android:contentDescription="Status Icon" />
+                android:contentDescription="@string/status_icon_content_desc"
+                android:padding="@dimen/status_icon_padding"
+                android:src="@drawable/ic_shield"
+                app:tint="@color/mint_600" />
 
             <TextView
                 android:id="@+id/protection_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Bảo vệ cuộc gọi"
-                android:textColor="#F1F5F9"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="@dimen/space_xl"
+                android:gravity="center"
+                android:text="@string/protection_title"
+                android:textAppearance="@style/TextAppearance.DeepCheck.Headline"
+                android:textColor="@color/text_primary" />
 
             <TextView
                 android:id="@+id/protection_description"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="@dimen/space_sm"
                 android:gravity="center"
-                android:lineSpacingExtra="3dp"
-                android:text="Bật bảo vệ để DeepCheck sẵn sàng hỗ trợ bạn khi đang gọi điện."
-                android:textColor="#8B96AA"
-                android:textSize="13sp" />
+                android:text="@string/protection_ready_description"
+                android:textAppearance="@style/TextAppearance.DeepCheck.Body"
+                android:textColor="@color/text_secondary" />
 
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/protection_button"
-                android:layout_width="match_parent"
-                android:layout_height="52dp"
-                android:layout_marginTop="22dp"
-                android:text="Bật bảo vệ"
-                android:textAllCaps="false"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                app:backgroundTint="#0068FF"
-                app:cornerRadius="14dp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/protection_level_card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:background="@drawable/bg_status_card"
-            android:orientation="vertical"
-            android:padding="18dp">
-
-            <TextView
+            <!-- Status badge: terracotta when idle, mint when active (swapped in code) -->
+            <LinearLayout
+                android:id="@+id/status_badge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="MỨC ĐỘ BẢO VỆ"
-                android:textColor="#8B96AA"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="@dimen/space_xl"
+                android:background="@drawable/bg_badge_terracotta"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/space_lg"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingEnd="@dimen/space_lg"
+                android:paddingBottom="@dimen/space_sm">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
-                android:orientation="horizontal">
+                <ImageView
+                    android:id="@+id/status_badge_icon"
+                    android:layout_width="@dimen/icon_sm"
+                    android:layout_height="@dimen/icon_sm"
+                    android:contentDescription="@string/status_icon_content_desc"
+                    android:src="@drawable/ic_alert"
+                    app:tint="@color/terracotta_deep" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/protection_level_medium"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_marginEnd="6dp"
-                    android:layout_weight="1"
-                    android:text="Trung bình"
-                    android:textAllCaps="false"
-                    android:textColor="#FFFFFF"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    app:backgroundTint="#1D4ED8"
-                    app:cornerRadius="12dp" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/protection_level_high"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_marginStart="6dp"
-                    android:layout_weight="1"
-                    android:text="Cao"
-                    android:textAllCaps="false"
-                    android:textColor="#C9D3E6"
-                    android:textSize="13sp"
-                    android:textStyle="bold"
-                    app:backgroundTint="#1A2438"
-                    app:cornerRadius="12dp"
-                    app:strokeColor="#33415C"
-                    app:strokeWidth="1dp" />
+                <TextView
+                    android:id="@+id/protection_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_sm"
+                    android:text="@string/status_inactive"
+                    android:textAppearance="@style/TextAppearance.DeepCheck.Label"
+                    android:textColor="@color/terracotta_deep" />
             </LinearLayout>
+
+            <!-- Primary CTA: bottom of the card -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_start_protection"
+                style="@style/Widget.DeepCheck.Button.Pill"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_activate_app"
+                android:textColor="@color/text_on_primary" />
         </LinearLayout>
     </LinearLayout>
 
-    <LinearLayout
-        android:id="@+id/bottom_navigation"
-        android:layout_width="0dp"
-        android:layout_height="64dp"
-        android:background="@drawable/bg_bottom_navigation"
-        android:gravity="center"
-        android:orientation="horizontal"
+    <!-- ===== Footer: underlined version link -> Page 2 (Settings) ===== -->
+    <TextView
+        android:id="@+id/footer_version"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingStart="@dimen/footer_touch_padding"
+        android:paddingTop="@dimen/footer_touch_padding"
+        android:paddingEnd="@dimen/footer_touch_padding"
+        android:paddingBottom="@dimen/footer_bottom_margin"
+        android:text="@string/footer_version"
+        android:textAppearance="@style/TextAppearance.DeepCheck.BodySmall"
+        android:textColor="@color/mint_600"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent">
-
-        <LinearLayout
-            android:id="@+id/nav_home"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_home"
-                app:tint="#22D3C8"
-                android:contentDescription="Trang chủ" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="Trang chủ"
-                android:textColor="#22D3C8"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:id="@+id/nav_history"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:clickable="true"
-            android:focusable="true">
-
-            <ImageView
-                android:layout_width="22dp"
-                android:layout_height="22dp"
-                android:src="@drawable/ic_history"
-                app:tint="#5B6785"
-                android:contentDescription="Lịch sử" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="Lịch sử"
-                android:textColor="#5B6785"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-        </LinearLayout>
-    </LinearLayout>
+        app:layout_constraintStart_toStartOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

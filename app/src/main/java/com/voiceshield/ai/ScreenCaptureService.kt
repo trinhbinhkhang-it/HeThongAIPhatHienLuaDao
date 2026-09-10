@@ -26,6 +26,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.google.mlkit.common.MlKitException
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.face.FaceDetection
@@ -157,14 +158,15 @@ class ScreenCaptureService : Service() {
         )
         Log.i(TAG, "Face detector created")
         publishStatus("Face detector ready")
-        val channel = NotificationChannel(CHANNEL_ID, "Screen capture", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_capture_channel), NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setSmallIcon(R.mipmap.ic_launcher)
-        .setContentTitle("Screen capture active")
-        .setContentText("MediaProjection proof of concept is running.")
+        .setSmallIcon(R.drawable.ic_shield)
+        .setColor(ContextCompat.getColor(this, R.color.mint_500))
+        .setContentTitle(getString(R.string.notif_capture_title))
+        .setContentText(getString(R.string.notif_capture_text))
         .setOngoing(true)
         .build()
 

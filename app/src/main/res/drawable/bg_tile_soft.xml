@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Flat mint tile: radius_tile, no gradient, no shadow. -->
+<!-- Soft tile: mint_500, radius_tile, no stroke. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
     <solid android:color="@color/mint_500"/>

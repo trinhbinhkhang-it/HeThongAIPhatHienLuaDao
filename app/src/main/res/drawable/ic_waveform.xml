@@ -1,0 +1,37 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Waveform bars representing audio analysis -->
+    <path
+        android:pathData="M4,12v0"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M7,9v6"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M10,6v12"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M13,8v8"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M16,5v14"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M19,10v4"
+        android:strokeWidth="2"
+        android:strokeColor="@color/mint_500"
+        android:strokeLineCap="round"/>
+</vector>
