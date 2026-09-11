@@ -7,7 +7,7 @@
 #include "RingBuffer.h"
 #include "DSP.h"
 
-#define LOG_TAG "DeepCheck_Native"
+#define LOG_TAG "ShieldCall_Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 static CircularAudioBuffer* g_audioBuffer = nullptr;

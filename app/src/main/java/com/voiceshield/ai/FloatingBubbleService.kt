@@ -40,6 +40,16 @@ data class DetectionResult(val score: Int, val riskLevel: RiskLevel)
 
 enum class RiskLevel { NO_RESULT, NORMAL, SUSPICIOUS, HIGH_RISK }
 
+/**
+ * ScreenCaptureService tracks faces for as long as the projection runs, but its
+ * results may only drive the bubble while a double-tap scan is active — an idle
+ * bubble must never start "detecting" on its own.
+ *
+ * Pure top-level function (no Android types) so the rule is JVM-testable.
+ */
+fun shouldApplyFaceDetection(scanning: Boolean, faceDetected: Boolean): Boolean =
+    scanning && faceDetected
+
 class FloatingBubbleService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var bubbleContainer: FrameLayout
@@ -53,6 +63,8 @@ class FloatingBubbleService : Service() {
     private var monitoringStarted = false
     private var resultSequenceStarted = false
     private var participantFaceDetected = false
+    /** Pending model updates belonging to the running scan; retracted by stopScan(). */
+    private val resultRunnables = mutableListOf<Runnable>()
     private var isFloating = false
 
     /**
@@ -138,8 +150,12 @@ class FloatingBubbleService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED) return
 
-            participantFaceDetected = intent.getBooleanExtra(ScreenCaptureService.EXTRA_FACE_DETECTED, false)
-            if (participantFaceDetected) beginResultSequenceAfterFaceDetected()
+            val detected = intent.getBooleanExtra(ScreenCaptureService.EXTRA_FACE_DETECTED, false)
+            // Always remember the latest state, even while idle: the user may
+            // double-tap later and no new broadcast will arrive by then.
+            participantFaceDetected = detected
+            // Idle bubble -> ignored. Only a double-tap scan consumes results.
+            if (shouldApplyFaceDetection(scanning, detected)) beginResultSequence()
         }
     }
 
@@ -336,13 +352,6 @@ class FloatingBubbleService : Service() {
         startRippleLoop(duration)
     }
 
-    /** Flips the bubble between the idle and scanning visual states. */
-    private fun setScanning(value: Boolean) {
-        if (scanning == value) return
-        scanning = value
-        render()
-    }
-
     /** Looping ripple used while scanning; re-armed from its own end action. */
     private fun startRippleLoop(duration: Long) {
         rippleDuration = duration
@@ -422,17 +431,21 @@ class FloatingBubbleService : Service() {
         rippleDuration = RIPPLE_DURATION_MS
         render()
         armScanTimer()
+        // A participant face may already be in frame: it was reported while the
+        // bubble was idle (and deliberately ignored), and ScreenCaptureService
+        // only re-broadcasts when that state *changes*.
+        if (shouldApplyFaceDetection(scanning, participantFaceDetected)) beginResultSequence()
     }
 
     /**
-     * Returns the bubble to idle: cancels any pending popup, dismisses any
-     * displayed one and drops the ripple. Only [scanRunnable] is removed from
-     * the handler, so a manual stop leaves the model-driven Phase-4 result
-     * sequence intact.
+     * Returns the bubble to idle: cancels the pending popup *and* the model
+     * result sequence, dismisses any displayed panel and drops the ripple, so
+     * nothing scheduled by this scan can fire afterwards.
      */
     private fun stopScan() {
         scanning = false
         handler.removeCallbacks(scanRunnable)
+        cancelResultSequence()
         removePanel()
         stopBlink()
         render()
@@ -717,22 +730,44 @@ class FloatingBubbleService : Service() {
         stopSelf()
     }
 
-    /** Starts demo/model results only after ScreenCaptureService identifies a participant face. */
-    private fun beginResultSequenceAfterFaceDetected() {
-        if (!monitoringStarted || resultSequenceStarted) return
+    /**
+     * Runs the model-result sequence for the scan the user started with a double
+     * tap. Only reachable while [scanning] is true: an idle bubble ignores face
+     * detection completely (see [shouldApplyFaceDetection]).
+     */
+    private fun beginResultSequence() {
+        if (!monitoringStarted || !scanning || resultSequenceStarted) return
 
         resultSequenceStarted = true
-        // A detected participant face switches the bubble into its scanning state.
-        setScanning(true)
         if (ProtectionState.getMode(this) == ScanMode.WARNING) {
-            handler.postDelayed({ update(DetectionResult(58, RiskLevel.SUSPICIOUS)) }, 900)
-            handler.postDelayed({
+            postResult(900) { update(DetectionResult(58, RiskLevel.SUSPICIOUS)) }
+            postResult(4_500) {
                 update(DetectionResult(84, RiskLevel.HIGH_RISK))
                 showHighRiskNotification()
-            }, 4_500)
+            }
         } else {
-            handler.postDelayed({ update(DetectionResult(24, RiskLevel.NORMAL)) }, 900)
+            postResult(900) { update(DetectionResult(24, RiskLevel.NORMAL)) }
         }
+    }
+
+    /** Schedules a model update and records it so [cancelResultSequence] can retract it. */
+    private fun postResult(delayMs: Long, block: () -> Unit) {
+        val runnable = object : Runnable {
+            override fun run() {
+                resultRunnables.remove(this)
+                block()
+            }
+        }
+        resultRunnables += runnable
+        handler.postDelayed(runnable, delayMs)
+    }
+
+    /** Drops every pending model update and clears the risk shown on the bubble. */
+    private fun cancelResultSequence() {
+        resultRunnables.forEach { handler.removeCallbacks(it) }
+        resultRunnables.clear()
+        resultSequenceStarted = false
+        current = DetectionResult(0, RiskLevel.NO_RESULT)
     }
 
     private fun update(result: DetectionResult) { current = result; render() }

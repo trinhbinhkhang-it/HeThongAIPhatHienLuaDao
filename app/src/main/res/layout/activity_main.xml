@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- ============================================================
-     DeepCheck - Page 1 (Home)
+     ShieldCall - Page 1 (Home)
      Flat pastel mint + terracotta accent; every colour/dimen is a
      design token, no inline hex anywhere.
      Structure: header -> status card (shield well, title, description,
@@ -40,7 +40,7 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/space_md"
             android:text="@string/app_name"
-            android:textAppearance="@style/TextAppearance.DeepCheck.Title"
+            android:textAppearance="@style/TextAppearance.ShieldCall.Title"
             android:textColor="@color/text_primary" />
     </LinearLayout>
 
@@ -85,7 +85,7 @@
                 android:layout_marginTop="@dimen/space_xl"
                 android:gravity="center"
                 android:text="@string/protection_title"
-                android:textAppearance="@style/TextAppearance.DeepCheck.Headline"
+                android:textAppearance="@style/TextAppearance.ShieldCall.Headline"
                 android:textColor="@color/text_primary" />
 
             <TextView
@@ -95,7 +95,7 @@
                 android:layout_marginTop="@dimen/space_sm"
                 android:gravity="center"
                 android:text="@string/protection_ready_description"
-                android:textAppearance="@style/TextAppearance.DeepCheck.Body"
+                android:textAppearance="@style/TextAppearance.ShieldCall.Body"
                 android:textColor="@color/text_secondary" />
 
             <!-- Status badge: terracotta when idle, mint when active (swapped in code) -->
@@ -126,14 +126,14 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_sm"
                     android:text="@string/status_inactive"
-                    android:textAppearance="@style/TextAppearance.DeepCheck.Label"
+                    android:textAppearance="@style/TextAppearance.ShieldCall.Label"
                     android:textColor="@color/terracotta_deep" />
             </LinearLayout>
 
             <!-- Primary CTA: bottom of the card -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_start_protection"
-                style="@style/Widget.DeepCheck.Button.Pill"
+                style="@style/Widget.ShieldCall.Button.Pill"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/button_height_pill"
                 android:layout_marginTop="@dimen/space_xl"
@@ -155,7 +155,7 @@
         android:paddingEnd="@dimen/footer_touch_padding"
         android:paddingBottom="@dimen/footer_bottom_margin"
         android:text="@string/footer_version"
-        android:textAppearance="@style/TextAppearance.DeepCheck.BodySmall"
+        android:textAppearance="@style/TextAppearance.ShieldCall.BodySmall"
         android:textColor="@color/mint_600"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"

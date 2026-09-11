@@ -16,11 +16,23 @@ import android.util.Log
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.ColorRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
+
+/**
+ * Pure gate for the system screen-share consent result: protection may only be
+ * enabled when the MediaProjection dialog returned RESULT_OK *with* payload
+ * data. Anything else means the user pressed "Cancel" / "Huỷ".
+ *
+ * Top-level and Android-free (Activity.RESULT_* are inlined compile-time
+ * constants) so the rule is JVM-unit-testable.
+ */
+fun isScreenCaptureGranted(resultCode: Int, hasData: Boolean): Boolean =
+    resultCode == Activity.RESULT_OK && hasData
 
 /**
  * Page 1 (Home).
@@ -35,6 +47,9 @@ class MainActivity : AppCompatActivity() {
     private var isProtecting = false
     private var waitingForOverlayPermission = false
 
+    /** True between launching the screen-share consent dialog and its result. */
+    private var waitingForScreenCapture = false
+
     private lateinit var protectionButton: MaterialButton
     private lateinit var protectionTitle: TextView
     private lateinit var protectionDescription: TextView
@@ -43,16 +58,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusBadgeIcon: ImageView
     private lateinit var footerVersion: TextView
 
+    /**
+     * Screen-share consent gate — the only path into [enableProtection]. If the
+     * user presses "Cancel" nothing has been started yet, so the app simply
+     * explains it with a toast: no bubble, the state stays "Chưa kích hoạt" and
+     * the CTA keeps reading "Kích hoạt ứng dụng".
+     */
     private val screenCaptureLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (!isProtecting || result.resultCode != Activity.RESULT_OK || result.data == null) {
+        if (!waitingForScreenCapture) return@registerForActivityResult
+        waitingForScreenCapture = false
+
+        val data = result.data
+        if (!isScreenCaptureGranted(result.resultCode, data != null)) {
+            Toast.makeText(this, R.string.screen_share_cancelled, Toast.LENGTH_SHORT).show()
             return@registerForActivityResult
         }
-        val captureIntent = Intent(this, ScreenCaptureService::class.java)
-            .putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, result.resultCode)
-            .putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, result.data)
-        ContextCompat.startForegroundService(this, captureIntent)
+        enableProtection(result.resultCode, requireNotNull(data))
     }
 
     private val captureStatusReceiver = object : BroadcastReceiver() {
@@ -129,6 +152,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Activation is consent-first: the overlay permission and then the system
+     * screen-share dialog are both settled *before* anything is switched on, so
+     * pressing "Cancel" leaves the app exactly as it was.
+     */
     private fun startProtection() {
         if (!Settings.canDrawOverlays(this)) {
             waitingForOverlayPermission = true
@@ -137,10 +165,19 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
-        enableProtection()
+        requestScreenCapture()
     }
 
-    private fun enableProtection() {
+    /** Runs only once the user has granted screen sharing; see [screenCaptureLauncher]. */
+    private fun enableProtection(resultCode: Int, resultData: Intent) {
+        requestNotificationPermission()
+        ProtectionState.setActive(this, true)
+        updateProtectionState(true)
+        startFloatingBubble()
+        startScreenCapture(resultCode, resultData)
+    }
+
+    private fun requestNotificationPermission() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -150,10 +187,6 @@ class MainActivity : AppCompatActivity() {
                 NOTIFICATION_PERMISSION_REQUEST
             )
         }
-        ProtectionState.setActive(this, true)
-        updateProtectionState(true)
-        startFloatingBubble()
-        requestScreenCapture()
     }
 
     private fun stopProtection() {
@@ -163,13 +196,22 @@ class MainActivity : AppCompatActivity() {
         updateProtectionState(false)
     }
 
-    /** The scan mode now travels through [ProtectionState], not through intent extras. */
+    /** The scan mode travels through [ProtectionState], not through intent extras. */
     private fun startFloatingBubble() {
         startService(Intent(this, FloatingBubbleService::class.java))
     }
 
+    /** Hands the granted projection token to the capture service. */
+    private fun startScreenCapture(resultCode: Int, resultData: Intent) {
+        val captureIntent = Intent(this, ScreenCaptureService::class.java)
+            .putExtra(ScreenCaptureService.EXTRA_RESULT_CODE, resultCode)
+            .putExtra(ScreenCaptureService.EXTRA_RESULT_DATA, resultData)
+        ContextCompat.startForegroundService(this, captureIntent)
+    }
+
     private fun requestScreenCapture() {
         val manager = getSystemService(MediaProjectionManager::class.java)
+        waitingForScreenCapture = true
         screenCaptureLauncher.launch(manager.createScreenCaptureIntent())
     }
 
@@ -200,7 +242,8 @@ class MainActivity : AppCompatActivity() {
         updateProtectionState(ProtectionState.isActive(this))
         if (waitingForOverlayPermission) {
             waitingForOverlayPermission = false
-            if (Settings.canDrawOverlays(this)) enableProtection()
+            // Overlay granted -> continue with the screen-share consent dialog.
+            if (Settings.canDrawOverlays(this)) requestScreenCapture()
         }
     }
 
@@ -209,7 +252,7 @@ class MainActivity : AppCompatActivity() {
     private fun colorStateList(@ColorRes id: Int) = ColorStateList.valueOf(color(id))
 
     private companion object {
-        const val TAG = "DeepCheckMainActivity"
+        const val TAG = "ShieldCallMainActivity"
         const val NOTIFICATION_PERMISSION_REQUEST = 10
     }
 }

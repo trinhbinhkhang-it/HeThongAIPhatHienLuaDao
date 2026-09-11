@@ -25,4 +25,4 @@ Hiện tại, dự án đã hoàn thành 95% khối lượng công việc, chi t
 KẾT LUẬN: Code đã sẵn sàng để triển khai thực tế (Production Ready).
 --------------------------------------------------
 Ngày báo cáo: 02/08/2026
-Hệ thống: DeepCheck System
+Hệ thống: ShieldCall System

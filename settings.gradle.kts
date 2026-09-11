@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "DeepCheck"
+rootProject.name = "ShieldCall"
 include(":app")
