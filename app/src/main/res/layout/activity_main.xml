@@ -1,19 +1,164 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================
+     SafeCallsCT - Page 1 (Home)
+     Flat pastel mint + terracotta accent; every colour/dimen is a
+     design token, no inline hex anywhere.
+     Structure: header -> status card (shield well, title, description,
+     status badge, primary CTA) -> version footer link to Page 2.
+     ============================================================ -->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
+    android:background="@color/bg_page">
 
-    <TextView
-        android:id="@+id/sample_text"
-        android:layout_width="wrap_content"
+    <!-- ===== Header: logo tile + wordmark ===== -->
+    <LinearLayout
+        android:id="@+id/app_header"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="Hello World!"
-        app:layout_constraintBottom_toBottomOf="parent"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="@dimen/space_xl"
+        android:layout_marginEnd="@dimen/screen_margin"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:layout_width="@dimen/logo_tile"
+            android:layout_height="@dimen/logo_tile"
+            android:background="@drawable/bg_app_logo"
+            android:contentDescription="@string/app_name"
+            android:padding="@dimen/space_sm"
+            android:src="@drawable/ic_shield"
+            app:tint="@color/text_on_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.SafeCallsCT.Title"
+            android:textColor="@color/text_primary" />
+    </LinearLayout>
+
+    <!-- ===== Home content: the single status card ===== -->
+    <LinearLayout
+        android:id="@+id/home_content"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_xxl"
+        android:layout_marginEnd="@dimen/space_xxl"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        app:layout_constraintBottom_toTopOf="@id/footer_version"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_header"
+        app:layout_constraintVertical_bias="0.50">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_status_card"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding">
+
+            <!-- Shield well: mint_50 oval + mint_600 line icon -->
+            <ImageView
+                android:id="@+id/status_icon"
+                android:layout_width="@dimen/status_icon_well"
+                android:layout_height="@dimen/status_icon_well"
+                android:background="@drawable/bg_status_icon"
+                android:contentDescription="@string/status_icon_content_desc"
+                android:padding="@dimen/status_icon_padding"
+                android:src="@drawable/ic_shield"
+                app:tint="@color/mint_600" />
+
+            <TextView
+                android:id="@+id/protection_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:gravity="center"
+                android:text="@string/protection_title"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Headline"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:id="@+id/protection_description"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:gravity="center"
+                android:text="@string/protection_ready_description"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                android:textColor="@color/text_secondary" />
+
+            <!-- Status badge: terracotta when idle, mint when active (swapped in code) -->
+            <LinearLayout
+                android:id="@+id/status_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:background="@drawable/bg_badge_terracotta"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/space_lg"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingEnd="@dimen/space_lg"
+                android:paddingBottom="@dimen/space_sm">
+
+                <ImageView
+                    android:id="@+id/status_badge_icon"
+                    android:layout_width="@dimen/icon_sm"
+                    android:layout_height="@dimen/icon_sm"
+                    android:contentDescription="@string/status_icon_content_desc"
+                    android:src="@drawable/ic_alert"
+                    app:tint="@color/terracotta_deep" />
+
+                <TextView
+                    android:id="@+id/protection_status"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_sm"
+                    android:text="@string/status_inactive"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                    android:textColor="@color/terracotta_deep" />
+            </LinearLayout>
+
+            <!-- Primary CTA: bottom of the card -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_start_protection"
+                style="@style/Widget.SafeCallsCT.Button.Pill"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_activate_app"
+                android:textColor="@color/text_on_primary" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ===== Footer: underlined version link -> Page 2 (Settings) ===== -->
+    <TextView
+        android:id="@+id/footer_version"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:clickable="true"
+        android:focusable="true"
+        android:paddingStart="@dimen/footer_touch_padding"
+        android:paddingTop="@dimen/footer_touch_padding"
+        android:paddingEnd="@dimen/footer_touch_padding"
+        android:paddingBottom="@dimen/footer_bottom_margin"
+        android:text="@string/footer_version"
+        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+        android:textColor="@color/mint_600"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

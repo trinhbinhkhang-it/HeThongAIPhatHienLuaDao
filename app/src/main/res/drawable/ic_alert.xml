@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Warning triangle outline -->
+    <path
+        android:pathData="M12,3L2,20h20L12,3z"
+        android:strokeWidth="1.8"
+        android:strokeColor="@color/terracotta"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent"/>
+    <!-- Exclamation line -->
+    <path
+        android:pathData="M12,10v4"
+        android:strokeWidth="1.8"
+        android:strokeColor="@color/terracotta"
+        android:strokeLineCap="round"/>
+    <!-- Exclamation dot -->
+    <path
+        android:pathData="M12,17m-1,0a1,1 0 1,0 2,0a1,1 0 1,0 -2,0"
+        android:strokeWidth="1.8"
+        android:strokeColor="@color/terracotta"
+        android:fillColor="@android:color/transparent"/>
+</vector>

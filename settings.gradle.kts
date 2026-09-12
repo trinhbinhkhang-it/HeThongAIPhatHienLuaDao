@@ -22,6 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "VoiceShieldAI"
+rootProject.name = "SafeCallsCT"
 include(":app")
- 

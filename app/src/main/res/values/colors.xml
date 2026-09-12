@@ -1,10 +1,51 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
+    <!-- ============================================================
+         SafeCallsCT design tokens
+         Style: Flat Design + Minimalist + Soft Pastel
+         Rule : every colour used by a layout / drawable / icon MUST
+                come from this file (no inline hex anywhere else).
+         ============================================================ -->
+
+    <!-- Base -->
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+
+    <!-- Primary: Pastel Mint / Aqua -->
+    <color name="mint_50">#F2FBF8</color>
+    <color name="mint_100">#DCF3EA</color>
+    <color name="mint_200">#B9E7D8</color>
+    <color name="mint_300">#8FD9C4</color>
+    <color name="mint_400">#5CC8AE</color>
+    <color name="mint_500">#3BB49A</color>
+    <color name="mint_600">#2C8F7C</color>
+    <color name="mint_700">#24786A</color>
+
+    <!-- Background & cards -->
+    <color name="bg_page">#F6F8F9</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_alt">#EFF3F4</color>
+    <color name="outline">#E4EAEC</color>
+
+    <!-- Text -->
+    <color name="text_primary">#2F3B40</color>
+    <color name="text_secondary">#6E7C82</color>
+    <color name="text_disabled">#A9B4B8</color>
+    <color name="text_on_primary">#FFFFFF</color>
+    <color name="ink_on_mint">#14453C</color>
+
+    <!-- Accent: Terracotta -->
+    <color name="terracotta">#E17B54</color>
+    <color name="terracotta_soft">#FCEAE2</color>
+    <color name="terracotta_deep">#B85C3B</color>
+    <color name="terracotta_ink">#9A4A2C</color>
+
+    <!-- Semantic risk levels (flat, safety critical) -->
+    <color name="risk_safe">#4FBFA3</color>
+    <color name="risk_caution">#E9A44C</color>
+    <color name="risk_danger">#D9584A</color>
+    <color name="risk_danger_soft">#FBE6E3</color>
+
+    <!-- Overlay scrim behind the floating bubble panel -->
+    <color name="scrim">#66263B36</color>
 </resources>

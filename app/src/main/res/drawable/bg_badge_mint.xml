@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Badge background: active/safe state — pale mint pill with mint hairline. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/mint_100" />
+    <stroke
+        android:width="@dimen/stroke_hairline"
+        android:color="@color/mint_300" />
+    <corners android:radius="@dimen/radius_pill" />
+</shape>

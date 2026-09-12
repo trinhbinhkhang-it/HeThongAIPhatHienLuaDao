@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Nav icon tint: mint_600 active, text_disabled inactive. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:color="@color/mint_600"/>
+    <item android:color="@color/text_disabled"/>
+</selector>

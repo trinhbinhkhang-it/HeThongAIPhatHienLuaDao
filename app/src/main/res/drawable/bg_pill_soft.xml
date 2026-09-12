@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pill soft: mint_100, radius_pill, no stroke. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/color_pill_soft"/>
+    <corners android:radius="@dimen/radius_pill"/>
+</shape>

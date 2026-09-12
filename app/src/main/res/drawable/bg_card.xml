@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Flat white card: radius_card, hairline outline, no shadow. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/surface"/>
+    <corners android:radius="@dimen/radius_card"/>
+    <stroke
+        android:width="@dimen/stroke_hairline"
+        android:color="@color/outline"/>
+</shape>

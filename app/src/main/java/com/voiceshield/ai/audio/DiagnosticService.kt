@@ -41,7 +41,7 @@ class DiagnosticService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "--> DiagnosticService onStartCommand")
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("VoiceShield Diagnostic")
+            .setContentTitle("SafeCallsCT Diagnostic")
             .setContentText("Monitoring Audio Capability...")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .build()

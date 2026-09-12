@@ -1,4 +1,4 @@
-BÁO CÁO TIẾN ĐỘ DỰ ÁN VOICESHIELDAI
+BÁO CÁO TIẾN ĐỘ DỰ ÁN DEEPCHECK
 
 Hiện tại, dự án đã hoàn thành 95% khối lượng công việc, chi tiết theo 5 giai đoạn như sau:
 
@@ -25,4 +25,4 @@ Hiện tại, dự án đã hoàn thành 95% khối lượng công việc, chi t
 KẾT LUẬN: Code đã sẵn sàng để triển khai thực tế (Production Ready).
 --------------------------------------------------
 Ngày báo cáo: 02/08/2026
-Hệ thống: VoiceShieldAI System
+Hệ thống: SafeCallsCT System

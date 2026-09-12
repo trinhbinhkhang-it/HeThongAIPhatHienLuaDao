@@ -1,3 +1,72 @@
 <resources>
-    <string name="app_name">VoiceShieldAI</string>
+    <string name="app_name">SafeCallsCT</string>
+
+    <!-- ===== Main screen ===== -->
+    <string name="protection_title">Bảo vệ cuộc gọi</string>
+    <string name="protection_active_description">Bubble bảo vệ đang hoạt động trên các ứng dụng khác.</string>
+    <string name="protection_ready_description">Bật bảo vệ để SafeCallsCT sẵn sàng hỗ trợ bạn khi đang gọi điện.</string>
+    <string name="btn_activate_app">Kích hoạt ứng dụng</string>
+    <string name="btn_deactivate_app">Tắt ứng dụng</string>
+    <string name="status_active">Đang bảo vệ</string>
+    <string name="status_inactive">Chưa kích hoạt</string>
+    <string name="status_icon_content_desc">Trạng thái bảo vệ</string>
+    <string name="screen_share_cancelled">Quyền chia sẻ màn hình đã hủy</string>
+    <string name="footer_version"><u>Version 1.0.1</u></string>
+
+    <!-- ===== Floating bubble panel ===== -->
+    <string name="panel_title">BẢO VỆ CUỘC GỌI</string>
+    <string name="panel_title_analyzing">ĐANG PHÂN TÍCH</string>
+    <string name="panel_title_high_risk">RỦI RO CAO</string>
+    <string name="panel_message_no_result">Đang chờ phát hiện khuôn mặt trong cuộc gọi video.</string>
+    <string name="panel_btn_continue">Tiếp tục theo dõi</string>
+    <string name="panel_btn_stop">Tắt bảo vệ</string>
+    <string name="panel_alert_content_desc">Cảnh báo rủi ro cao</string>
+
+    <!-- ===== Risk labels & messages ===== -->
+    <string name="risk_no_result">CHƯA CÓ KẾT QUẢ</string>
+    <string name="risk_normal">BÌNH THƯỜNG</string>
+    <string name="risk_suspicious">NGHI NGỜ</string>
+    <string name="risk_high">RỦI RO CAO</string>
+    <string name="risk_msg_normal">Chưa phát hiện dấu hiệu bất thường đáng kể.</string>
+    <string name="risk_msg_suspicious">Có một số dấu hiệu bất thường trong hình ảnh.</string>
+    <string name="risk_msg_high">Phát hiện dấu hiệu có thể liên quan đến face-swapping.\n\nKhông chia sẻ OTP hoặc thông tin nhạy cảm.</string>
+
+    <!-- ===== Notifications ===== -->
+    <string name="notif_warning_title">CẢNH BÁO CUỘC GỌI</string>
+    <string name="notif_warning_text">Có dấu hiệu nghi ngờ thao túng khuôn mặt. Không chia sẻ OTP hoặc thông tin nhạy cảm.</string>
+    <string name="notif_warning_big_text">Có dấu hiệu nghi ngờ thao túng khuôn mặt trong cuộc gọi. Không chia sẻ OTP hoặc thông tin nhạy cảm.</string>
+    <string name="notif_warning_channel">Cảnh báo SafeCallsCT</string>
+    <string name="notif_capture_title">SafeCallsCT đang bảo vệ</string>
+    <string name="notif_capture_text">Giám sát cuộc gọi video để phát hiện deepfake.</string>
+    <string name="notif_capture_channel">Screen capture</string>
+
+    <!-- ===== Settings screen (Page 2) ===== -->
+    <string name="settings_title">Cấu hình SafeCallsCT</string>
+    <string name="settings_config_header">CHẾ ĐỘ QUÉT</string>
+    <string name="mode_safe">Chế độ An Toàn</string>
+    <string name="mode_warning">Chế độ Cảnh Báo</string>
+    <string name="btn_save_config">Lưu cấu hình</string>
+    <string name="btn_back_home">Quay về trang chủ</string>
+    <string name="settings_saved">Đã lưu cấu hình</string>
+
+    <!-- ===== Bubble scan popups ===== -->
+    <string name="popup_safe_message">Hệ thống đánh giá cuộc gọi An Toàn</string>
+    <string name="popup_warning_message">Cảnh báo - Xuất hiện Deepfake trong cuộc gọi, nghi ngờ lừa đảo</string>
+    <string name="popup_btn_close">Đóng</string>
+    <string name="popup_btn_disable_protection">Tắt bảo vệ</string>
+    <string name="popup_safe_icon_desc">Cuộc gọi an toàn</string>
+    <string name="popup_warning_icon_desc">Cảnh báo deepfake</string>
+
+    <!-- ===== Floating bubble accessibility ===== -->
+    <string name="bubble_desc_idle">SafeCallsCT: chạm hai lần để bắt đầu quét</string>
+    <string name="bubble_desc_scanning">SafeCallsCT: đang quét, chạm hai lần để dừng</string>
+
+    <string-array name="sampling_rate_options">
+        <item>1 fps</item>
+        <item>2 fps</item>
+        <item>5 fps</item>
+    </string-array>
+    <string-array name="aggregation_options">
+        <item>average</item>
+    </string-array>
 </resources>

@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
@@ -94,13 +93,13 @@ class DiagnosticActivity : AppCompatActivity() {
         val labelView = TextView(this).apply {
             text = "$label: "
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setTextColor(Color.BLACK)
+            setTextColor(ContextCompat.getColor(this@DiagnosticActivity, R.color.text_primary))
             textSize = 16f
         }
         val valueView = TextView(this).apply {
             text = initialValue
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            setTextColor(Color.BLUE)
+            setTextColor(ContextCompat.getColor(this@DiagnosticActivity, R.color.text_secondary))
             textSize = 16f
         }
         row.addView(labelView)
@@ -169,9 +168,9 @@ class DiagnosticActivity : AppCompatActivity() {
         infoViews["PEAK"]?.text = String.format("%.2f", peak)
         
         if (isSilenced) {
-            infoViews["Capture"]?.setTextColor(Color.RED)
+            infoViews["Capture"]?.setTextColor(ContextCompat.getColor(this, R.color.risk_danger))
         } else {
-            infoViews["Capture"]?.setTextColor(Color.GREEN)
+            infoViews["Capture"]?.setTextColor(ContextCompat.getColor(this, R.color.risk_safe))
         }
     }
 

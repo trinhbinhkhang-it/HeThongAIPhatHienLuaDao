@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pill outline button: surface normal, surface_alt pressed. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true" android:color="@color/surface_alt"/>
+    <item android:color="@color/surface"/>
+</selector>

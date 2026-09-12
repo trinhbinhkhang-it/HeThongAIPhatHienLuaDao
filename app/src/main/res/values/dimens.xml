@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ===== Shape tokens: soft rounded / pill ===== -->
+    <dimen name="radius_pill">999dp</dimen>
+    <dimen name="radius_card">24dp</dimen>
+    <dimen name="radius_tile">18dp</dimen>
+    <dimen name="radius_chip">14dp</dimen>
+
+    <!-- ===== Flat design: hairline instead of shadow ===== -->
+    <dimen name="stroke_hairline">1dp</dimen>
+    <dimen name="elevation_flat">0dp</dimen>
+
+    <!-- ===== Spacing scale ===== -->
+    <dimen name="space_xxs">2dp</dimen>
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_sm">8dp</dimen>
+    <dimen name="space_md">12dp</dimen>
+    <dimen name="space_lg">16dp</dimen>
+    <dimen name="space_xl">20dp</dimen>
+    <dimen name="space_xxl">24dp</dimen>
+    <dimen name="space_xxxl">28dp</dimen>
+    <dimen name="screen_margin">20dp</dimen>
+    <dimen name="card_padding">24dp</dimen>
+
+    <!-- ===== Component sizes ===== -->
+    <dimen name="button_height_pill">52dp</dimen>
+    <dimen name="chip_height">44dp</dimen>
+    <dimen name="bottom_nav_height">64dp</dimen>
+    <dimen name="nav_indicator_width">28dp</dimen>
+    <dimen name="nav_indicator_height">3dp</dimen>
+    <dimen name="logo_tile">36dp</dimen>
+    <dimen name="status_icon_well">56dp</dimen>
+    <dimen name="status_icon_padding">14dp</dimen>
+    <dimen name="icon_sm">18dp</dimen>
+    <dimen name="icon_md">22dp</dimen>
+    <dimen name="icon_lg">28dp</dimen>
+
+    <!-- ===== Typography scale (sizes only; family added with Nunito) ===== -->
+    <dimen name="text_display">28sp</dimen>
+    <dimen name="text_title">19sp</dimen>
+    <dimen name="text_headline">17sp</dimen>
+    <dimen name="text_body">14sp</dimen>
+    <dimen name="text_body_small">13sp</dimen>
+    <dimen name="text_label">12sp</dimen>
+    <dimen name="text_nav">11sp</dimen>
+
+    <!-- ===== Footer / version link ===== -->
+    <dimen name="footer_bottom_margin">24dp</dimen>
+    <dimen name="footer_touch_padding">16dp</dimen>
+
+    <!-- ===== Floating bubble: left-edge shield ===== -->
+    <dimen name="bubble_container_size">100dp</dimen>
+    <dimen name="bubble_size">64dp</dimen>
+    <dimen name="bubble_icon_padding">14dp</dimen>
+    <dimen name="bubble_edge_margin">14dp</dimen>
+    <dimen name="bubble_bottom_margin">90dp</dimen>
+    <dimen name="bubble_drag_slop">6dp</dimen>
+    <dimen name="bubble_float_offset">5dp</dimen>
+    <dimen name="bubble_panel_margin">16dp</dimen>
+
+    <!-- ===== Scan popups (Safe / Warning overlays) ===== -->
+    <dimen name="popup_icon_size">56dp</dimen>
+    <dimen name="popup_icon_padding">14dp</dimen>
+</resources>
