@@ -252,7 +252,7 @@ class MainActivity : AppCompatActivity() {
     private fun colorStateList(@ColorRes id: Int) = ColorStateList.valueOf(color(id))
 
     private companion object {
-        const val TAG = "ShieldCallMainActivity"
+        const val TAG = "SafeCallsCTMainActivity"
         const val NOTIFICATION_PERMISSION_REQUEST = 10
     }
 }

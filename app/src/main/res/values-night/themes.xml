@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Night theme mirrors light theme — spec is a light pastel system. -->
-    <style name="Theme.ShieldCall" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.SafeCallsCT" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:statusBarColor">@color/bg_page</item>
         <item name="android:navigationBarColor">@color/surface</item>
@@ -20,7 +20,7 @@
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="android:colorBackground">@color/bg_page</item>
 
-        <item name="materialButtonStyle">@style/Widget.ShieldCall.Button.Pill</item>
-        <item name="materialCardViewStyle">@style/Widget.ShieldCall.Card</item>
+        <item name="materialButtonStyle">@style/Widget.SafeCallsCT.Button.Pill</item>
+        <item name="materialCardViewStyle">@style/Widget.SafeCallsCT.Card</item>
     </style>
 </resources>

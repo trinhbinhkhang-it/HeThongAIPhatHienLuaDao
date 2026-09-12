@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- ============================================================
-         ShieldCall design tokens
+         SafeCallsCT design tokens
          Style: Flat Design + Minimalist + Soft Pastel
          Rule : every colour used by a layout / drawable / icon MUST
                 come from this file (no inline hex anywhere else).

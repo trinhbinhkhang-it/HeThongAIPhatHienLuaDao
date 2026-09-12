@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ShieldCall"
+rootProject.name = "SafeCallsCT"
 include(":app")

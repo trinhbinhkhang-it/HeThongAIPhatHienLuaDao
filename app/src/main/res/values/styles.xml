@@ -4,49 +4,49 @@
     <!-- ============================================================
          Text appearances — Nunito (or system sans-serif fallback)
          ============================================================ -->
-    <style name="TextAppearance.ShieldCall" parent="TextAppearance.MaterialComponents.Body1">
+    <style name="TextAppearance.SafeCallsCT" parent="TextAppearance.MaterialComponents.Body1">
         <item name="android:fontFamily">sans-serif-medium</item>
         <item name="fontFamily">sans-serif-medium</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Display" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Display" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_display</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Title" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Title" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_title</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Headline" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Headline" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_headline</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_primary</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Body" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Body" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_body</item>
         <item name="android:textStyle">normal</item>
         <item name="android:textColor">@color/text_secondary</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.BodySmall" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.BodySmall" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_body_small</item>
         <item name="android:textStyle">normal</item>
         <item name="android:textColor">@color/text_secondary</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Label" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Label" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_label</item>
         <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="android:letterSpacing">0.08</item>
     </style>
 
-    <style name="TextAppearance.ShieldCall.Nav" parent="TextAppearance.ShieldCall">
+    <style name="TextAppearance.SafeCallsCT.Nav" parent="TextAppearance.SafeCallsCT">
         <item name="android:textSize">@dimen/text_nav</item>
         <item name="android:textStyle">bold</item>
     </style>
@@ -54,7 +54,7 @@
     <!-- ============================================================
          Buttons — pill shape, flat (no elevation)
          ============================================================ -->
-    <style name="Widget.ShieldCall.Button" parent="Widget.MaterialComponents.Button">
+    <style name="Widget.SafeCallsCT.Button" parent="Widget.MaterialComponents.Button">
         <item name="android:textAllCaps">false</item>
         <item name="android:stateListAnimator">@null</item>
         <item name="android:elevation">@dimen/elevation_flat</item>
@@ -65,25 +65,25 @@
         <item name="android:fontFamily">sans-serif-medium</item>
     </style>
 
-    <style name="Widget.ShieldCall.Button.Pill" parent="Widget.ShieldCall.Button">
+    <style name="Widget.SafeCallsCT.Button.Pill" parent="Widget.SafeCallsCT.Button">
         <item name="backgroundTint">@color/mint_500</item>
         <item name="android:textColor">@color/text_on_primary</item>
     </style>
 
-    <style name="Widget.ShieldCall.Button.PillSoft" parent="Widget.ShieldCall.Button">
+    <style name="Widget.SafeCallsCT.Button.PillSoft" parent="Widget.SafeCallsCT.Button">
         <item name="backgroundTint">@color/mint_100</item>
         <item name="android:textColor">@color/ink_on_mint</item>
         <item name="strokeWidth">0dp</item>
     </style>
 
-    <style name="Widget.ShieldCall.Button.PillOutline" parent="Widget.ShieldCall.Button">
+    <style name="Widget.SafeCallsCT.Button.PillOutline" parent="Widget.SafeCallsCT.Button">
         <item name="backgroundTint">@color/surface</item>
         <item name="android:textColor">@color/text_secondary</item>
         <item name="strokeColor">@color/outline</item>
         <item name="strokeWidth">@dimen/stroke_hairline</item>
     </style>
 
-    <style name="Widget.ShieldCall.Button.PillDanger" parent="Widget.ShieldCall.Button">
+    <style name="Widget.SafeCallsCT.Button.PillDanger" parent="Widget.SafeCallsCT.Button">
         <item name="backgroundTint">@color/terracotta_soft</item>
         <item name="android:textColor">@color/terracotta_deep</item>
         <item name="strokeWidth">0dp</item>
@@ -92,7 +92,7 @@
     <!-- ============================================================
          Cards — white, hairline, flat
          ============================================================ -->
-    <style name="Widget.ShieldCall.Card" parent="Widget.MaterialComponents.CardView">
+    <style name="Widget.SafeCallsCT.Card" parent="Widget.MaterialComponents.CardView">
         <item name="cardBackgroundColor">@color/surface</item>
         <item name="cardCornerRadius">@dimen/radius_card</item>
         <item name="cardElevation">@dimen/elevation_flat</item>
@@ -101,13 +101,13 @@
         <item name="android:elevation">@dimen/elevation_flat</item>
     </style>
 
-    <style name="Widget.ShieldCall.Card.Tile" parent="Widget.ShieldCall.Card">
+    <style name="Widget.SafeCallsCT.Card.Tile" parent="Widget.SafeCallsCT.Card">
         <item name="cardCornerRadius">@dimen/radius_tile</item>
         <item name="cardBackgroundColor">@color/mint_500</item>
         <item name="strokeWidth">0dp</item>
     </style>
 
-    <style name="Widget.ShieldCall.Card.Tinted" parent="Widget.ShieldCall.Card">
+    <style name="Widget.SafeCallsCT.Card.Tinted" parent="Widget.SafeCallsCT.Card">
         <item name="cardBackgroundColor">@color/mint_50</item>
     </style>
 </resources>
