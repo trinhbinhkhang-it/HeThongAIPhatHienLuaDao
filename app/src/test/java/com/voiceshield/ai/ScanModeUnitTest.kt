@@ -20,21 +20,21 @@ class ScanModeUnitTest {
     }
 
     @Test
-    fun safeDelay_staysInsideEightToTwentyFiveSeconds() {
+    fun safeDelay_staysInsideSixToTwelveSeconds() {
         (1..10_000).forEach { seed ->
             val delay = scanDelayMs(ScanMode.SAFE, Random(seed))
-            assertTrue("SAFE delay $delay must be >= 8_000", delay >= 8_000L)
-            assertTrue("SAFE delay $delay must be <= 25_000", delay <= 25_000L)
+            assertTrue("SAFE delay $delay must be >= 6_000", delay >= 6_000L)
+            assertTrue("SAFE delay $delay must be <= 12_000", delay <= 12_000L)
             assertEquals("delay must be whole seconds", 0L, delay % 1_000L)
         }
     }
 
     @Test
-    fun warningDelay_staysInsideSevenToTwentySeconds() {
+    fun warningDelay_staysInsideSevenToFifteenSeconds() {
         (1..10_000).forEach { seed ->
             val delay = scanDelayMs(ScanMode.WARNING, Random(seed))
             assertTrue("WARNING delay $delay must be >= 7_000", delay >= 7_000L)
-            assertTrue("WARNING delay $delay must be <= 20_000", delay <= 20_000L)
+            assertTrue("WARNING delay $delay must be <= 15_000", delay <= 15_000L)
             assertEquals("delay must be whole seconds", 0L, delay % 1_000L)
         }
     }
@@ -58,10 +58,10 @@ class ScanModeUnitTest {
             if (warning > warningMax) warningMax = warning
         }
 
-        assertEquals("SAFE window must start at 8 s", 8_000L, safeMin)
-        assertEquals("SAFE window must end at 25 s", 25_000L, safeMax)
+        assertEquals("SAFE window must start at 6 s", 6_000L, safeMin)
+        assertEquals("SAFE window must end at 12 s", 12_000L, safeMax)
         assertEquals("WARNING window must start at 7 s", 7_000L, warningMin)
-        assertEquals("WARNING window must end at 20 s", 20_000L, warningMax)
+        assertEquals("WARNING window must end at 15 s", 15_000L, warningMax)
     }
 
     /** The roll must actually vary — a constant would defeat the "random" spec. */
@@ -81,8 +81,8 @@ class ScanModeUnitTest {
     @Test
     fun defaultRandomSource_staysInsideWindow() {
         repeat(5_000) {
-            assertTrue(scanDelayMs(ScanMode.SAFE) in 8_000L..25_000L)
-            assertTrue(scanDelayMs(ScanMode.WARNING) in 7_000L..20_000L)
+            assertTrue(scanDelayMs(ScanMode.SAFE) in 6_000L..12_000L)
+            assertTrue(scanDelayMs(ScanMode.WARNING) in 7_000L..15_000L)
         }
     }
 }
