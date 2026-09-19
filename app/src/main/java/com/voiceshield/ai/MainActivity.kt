@@ -156,6 +156,8 @@ class MainActivity : AppCompatActivity() {
      * Activation is consent-first: the overlay permission and then the system
      * screen-share dialog are both settled *before* anything is switched on, so
      * pressing "Cancel" leaves the app exactly as it was.
+     * pressing Canclen  leaves the app excatly as it was
+     *
      */
     private fun startProtection() {
         if (!Settings.canDrawOverlays(this)) {
