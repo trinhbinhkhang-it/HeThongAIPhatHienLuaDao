@@ -48,4 +48,7 @@
 
     <!-- Overlay scrim behind the floating bubble panel -->
     <color name="scrim">#66263B36</color>
+
+    <!-- Drag-to-dismiss X target: gray circle, white glyph (spec: "gray color") -->
+    <color name="dismiss_target_bg">#B33A464C</color>
 </resources>

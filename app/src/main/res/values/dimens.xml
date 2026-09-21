@@ -61,4 +61,13 @@
     <!-- ===== Scan popups (Safe / Warning overlays) ===== -->
     <dimen name="popup_icon_size">56dp</dimen>
     <dimen name="popup_icon_padding">14dp</dimen>
+
+    <!-- ===== Drag-to-dismiss X target (disable_floating_bubble.md) ===== -->
+    <!-- Base diameter of the X circle; it is drawn expanded (1.5x) and shrinks
+         to exactly bubble_size while the bubble overlaps it. -->
+    <dimen name="dismiss_target_size">72dp</dimen>
+    <dimen name="dismiss_target_bottom_margin">48dp</dimen>
+    <dimen name="dismiss_target_glyph_padding">22dp</dimen>
+    <!-- Centre-to-centre distance at which the X target counts as "hit". -->
+    <dimen name="dismiss_overlap_threshold">40dp</dimen>
 </resources>

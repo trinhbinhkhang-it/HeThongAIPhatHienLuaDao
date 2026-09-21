@@ -170,11 +170,17 @@ class MainActivity : AppCompatActivity() {
         requestScreenCapture()
     }
 
-    /** Runs only once the user has granted screen sharing; see [screenCaptureLauncher]. */
+    /**
+     * Runs only once the user has granted screen sharing; see [screenCaptureLauncher].
+     *
+     * The status flip to "Đang bảo vệ" is deliberately NOT done here. Per
+     * enable_floating_bubble.md the app "must not display 'Đang bảo vệ' unless the
+     * bubble has been successfully rendered", so [FloatingBubbleService] flips
+     * [ProtectionState] only after its overlay is really on screen and
+     * [protectionStateReceiver] repaints the card from that broadcast.
+     */
     private fun enableProtection(resultCode: Int, resultData: Intent) {
         requestNotificationPermission()
-        ProtectionState.setActive(this, true)
-        updateProtectionState(true)
         startFloatingBubble()
         startScreenCapture(resultCode, resultData)
     }

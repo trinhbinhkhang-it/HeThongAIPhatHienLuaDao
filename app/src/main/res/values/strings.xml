@@ -60,6 +60,7 @@
     <!-- ===== Floating bubble accessibility ===== -->
     <string name="bubble_desc_idle">SafeCallsCT: chạm hai lần để bắt đầu quét</string>
     <string name="bubble_desc_scanning">SafeCallsCT: đang quét, chạm hai lần để dừng</string>
+    <string name="bubble_dismiss_target_desc">Thả bubble vào đây để tắt bảo vệ</string>
 
     <string-array name="sampling_rate_options">
         <item>1 fps</item>

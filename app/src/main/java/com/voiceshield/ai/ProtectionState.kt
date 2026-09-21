@@ -7,15 +7,16 @@ import kotlin.random.Random
 /** Scan modes selectable on Page 2 (Settings). */
 enum class ScanMode { SAFE, WARNING }
 
-// Spec §3 scan-popup windows, in whole seconds (inclusive bounds).
-private const val SAFE_DELAY_MIN_SECONDS = 6
-private const val SAFE_DELAY_MAX_SECONDS = 12
-private const val WARNING_DELAY_MIN_SECONDS = 7
-private const val WARNING_DELAY_MAX_SECONDS = 15
+// enable_floating_bubble.md §Business Rules detection windows, in whole
+// seconds (inclusive bounds): Safe Mode 4–7 s, Warning Mode 5–8 s.
+private const val SAFE_DELAY_MIN_SECONDS = 4
+private const val SAFE_DELAY_MAX_SECONDS = 7
+private const val WARNING_DELAY_MIN_SECONDS = 5
+private const val WARNING_DELAY_MAX_SECONDS = 8
 
 /**
  * Random delay, in milliseconds, before the scan popup appears for [mode]:
- * SAFE rolls 6–12 s, WARNING rolls 7–15 s.
+ * SAFE rolls 4–7 s, WARNING rolls 5–8 s.
  *
  * Deliberately a top-level pure function with no Android types so it is
  * unit-testable on the JVM without Robolectric.
