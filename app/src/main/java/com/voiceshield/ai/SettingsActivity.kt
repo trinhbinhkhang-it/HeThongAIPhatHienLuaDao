@@ -10,8 +10,12 @@ import com.google.android.material.button.MaterialButton
  * Page 2 (Settings): pick the scan mode the floating bubble uses once a scan
  * is toggled on with a double tap.
  *
- * SAFE    -> reassuring "call is safe" popup after a random 8-25 s.
- * WARNING -> deepfake alert popup after a random 7-20 s.
+ * SAFE    -> reassuring "call is safe" popup after a random 4-7 s.
+ * WARNING -> deepfake alert popup after a random 5-8 s.
+ *
+ * Both windows are defaults only: the hidden developer page (triple-tap the
+ * version footer on Page 1) can override them, and the bubble re-reads the
+ * persisted values every time it arms the scan timer.
  */
 class SettingsActivity : AppCompatActivity() {
 

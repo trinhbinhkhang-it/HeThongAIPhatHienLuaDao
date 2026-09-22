@@ -22,7 +22,7 @@ class ScanModeUnitTest {
     @Test
     fun safeDelay_staysInsideFourToSevenSeconds() {
         (1..10_000).forEach { seed ->
-            val delay = scanDelayMs(ScanMode.SAFE, Random(seed))
+            val delay = scanDelayMs(ScanMode.SAFE, random = Random(seed))
             assertTrue("SAFE delay $delay must be >= 4_000", delay >= 4_000L)
             assertTrue("SAFE delay $delay must be <= 7_000", delay <= 7_000L)
             assertEquals("delay must be whole seconds", 0L, delay % 1_000L)
@@ -32,7 +32,7 @@ class ScanModeUnitTest {
     @Test
     fun warningDelay_staysInsideFiveToEightSeconds() {
         (1..10_000).forEach { seed ->
-            val delay = scanDelayMs(ScanMode.WARNING, Random(seed))
+            val delay = scanDelayMs(ScanMode.WARNING, random = Random(seed))
             assertTrue("WARNING delay $delay must be >= 5_000", delay >= 5_000L)
             assertTrue("WARNING delay $delay must be <= 8_000", delay <= 8_000L)
             assertEquals("delay must be whole seconds", 0L, delay % 1_000L)
@@ -49,11 +49,11 @@ class ScanModeUnitTest {
         var warningMax = Long.MIN_VALUE
 
         repeat(200_000) {
-            val safe = scanDelayMs(ScanMode.SAFE, random)
+            val safe = scanDelayMs(ScanMode.SAFE, random = random)
             if (safe < safeMin) safeMin = safe
             if (safe > safeMax) safeMax = safe
 
-            val warning = scanDelayMs(ScanMode.WARNING, random)
+            val warning = scanDelayMs(ScanMode.WARNING, random = random)
             if (warning < warningMin) warningMin = warning
             if (warning > warningMax) warningMax = warning
         }

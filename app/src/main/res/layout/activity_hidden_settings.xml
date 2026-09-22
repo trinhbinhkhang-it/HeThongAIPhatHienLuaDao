@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================
+     SafeCallsCT - Hidden developer page
+     Reached only by triple-tapping "Version 1.0.1" on Page 1.
+     Edits the random roll windows the bubble waits before it
+     shows a scan popup. Same header pattern and design tokens as
+     Pages 1 and 2; no inline hex anywhere.
+     ============================================================ -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_page">
+
+    <!-- ===== Header: logo tile + wordmark ===== -->
+    <LinearLayout
+        android:id="@+id/app_header"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="@dimen/space_xl"
+        android:layout_marginEnd="@dimen/screen_margin"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:layout_width="@dimen/logo_tile"
+            android:layout_height="@dimen/logo_tile"
+            android:background="@drawable/bg_app_logo"
+            android:contentDescription="@string/app_name"
+            android:padding="@dimen/space_sm"
+            android:src="@drawable/ic_shield"
+            app:tint="@color/text_on_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.SafeCallsCT.Title"
+            android:textColor="@color/text_primary" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/hidden_scroll"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="@dimen/space_lg"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/space_xxl"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_header">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_xxl"
+            android:layout_marginEnd="@dimen/space_xxl"
+            android:background="@drawable/bg_status_card"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/hidden_settings_title"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Headline"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xs"
+                android:text="@string/hidden_settings_subtitle"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/terracotta" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_settings_intro"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                android:textColor="@color/text_secondary" />
+
+            <!-- ===== Safe Mode roll window ===== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_safe"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="@dimen/space_md"
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_hint_min">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_safe_min"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionNext"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_hint_max">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_safe_max"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionNext"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- ===== Warning Mode roll window ===== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:text="@string/hidden_section_warning"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="@dimen/space_md"
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_hint_min">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_warning_min"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionNext"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_hint_max">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_warning_max"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionDone"
+                        android:inputType="number"
+                        android:maxLength="3"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+            </LinearLayout>
+
+            <!-- ===== Live preview of the sanitised windows ===== -->
+            <TextView
+                android:id="@+id/hidden_preview"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:background="@drawable/bg_badge_mint"
+                android:padding="@dimen/space_md"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/ink_on_mint" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_bounds_notice"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <!-- Save (primary pill) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_hidden_save"
+                style="@style/Widget.SafeCallsCT.Button.Pill"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_hidden_save"
+                android:textColor="@color/text_on_primary" />
+
+            <!-- Restore the spec defaults (outline pill) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_hidden_reset"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_hidden_reset"
+                android:textColor="@color/text_secondary" />
+
+            <!-- Back (outline pill) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_hidden_back"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_hidden_back"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

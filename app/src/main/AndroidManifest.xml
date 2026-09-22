@@ -43,6 +43,16 @@
             android:label="@string/settings_title"
             android:parentActivityName=".MainActivity" />
 
+        <!-- Hidden developer page: triple-tap "Version 1.0.1" on Page 1 to reach it.
+             Not exported and not linked from Page 2, so it stays off the ordinary
+             user's path. -->
+        <activity
+            android:name=".HiddenSettingsActivity"
+            android:exported="false"
+            android:label="@string/hidden_settings_title"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".audio.DiagnosticService"
             android:foregroundServiceType="microphone"

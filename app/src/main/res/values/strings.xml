@@ -49,6 +49,22 @@
     <string name="btn_back_home">Quay về trang chủ</string>
     <string name="settings_saved">Đã lưu cấu hình</string>
 
+    <!-- ===== Hidden developer page (triple-tap the version footer on Page 1) ===== -->
+    <string name="hidden_settings_title">Cấu hình ẩn</string>
+    <string name="hidden_settings_subtitle">CHỈ DÀNH CHO NHÀ PHÁT TRIỂN</string>
+    <string name="hidden_settings_intro">Điều chỉnh khoảng thời gian ngẫu nhiên trước khi pop-up quét xuất hiện, sau khi chạm hai lần vào bubble.</string>
+    <string name="hidden_section_safe">CHẾ ĐỘ AN TOÀN (GIÂY)</string>
+    <string name="hidden_section_warning">CHẾ ĐỘ CẢNH BÁO (GIÂY)</string>
+    <string name="hidden_hint_min">Tối thiểu</string>
+    <string name="hidden_hint_max">Tối đa</string>
+    <string name="hidden_preview">An Toàn: %1$d–%2$d giây   •   Cảnh Báo: %3$d–%4$d giây</string>
+    <string name="hidden_bounds_notice">Giá trị được giới hạn trong 1–600 giây. Nếu tối thiểu lớn hơn tối đa, hai giá trị sẽ tự động hoán đổi.</string>
+    <string name="btn_hidden_save">Lưu khoảng thời gian</string>
+    <string name="btn_hidden_reset">Khôi phục mặc định</string>
+    <string name="btn_hidden_back">Quay lại</string>
+    <string name="hidden_saved">Đã lưu khoảng thời gian quét</string>
+    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây</string>
+
     <!-- ===== Bubble scan popups ===== -->
     <string name="popup_safe_message">Hệ thống đánh giá cuộc gọi An Toàn</string>
     <string name="popup_warning_message">Cảnh báo - Xuất hiện Deepfake trong cuộc gọi, nghi ngờ lừa đảo</string>
@@ -61,6 +77,9 @@
     <string name="bubble_desc_idle">SafeCallsCT: chạm hai lần để bắt đầu quét</string>
     <string name="bubble_desc_scanning">SafeCallsCT: đang quét, chạm hai lần để dừng</string>
     <string name="bubble_dismiss_target_desc">Thả bubble vào đây để tắt bảo vệ</string>
+
+    <!-- ===== Permission revocation (granting_permissions.md) ===== -->
+    <string name="overlay_permission_revoked">Quyền hiển thị trên ứng dụng khác đã bị thu hồi. Bảo vệ đã tắt — vui lòng cấp lại quyền để tiếp tục.</string>
 
     <string-array name="sampling_rate_options">
         <item>1 fps</item>

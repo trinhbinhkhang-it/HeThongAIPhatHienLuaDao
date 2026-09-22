@@ -11,6 +11,9 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.widget.ImageView
@@ -58,6 +61,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusBadgeIcon: ImageView
     private lateinit var footerVersion: TextView
 
+    // ── Hidden developer page: triple-tap the version footer ──────────────────
+    /**
+     * A single tap on the version footer opens Page 2 (Settings), so the ordinary
+     * navigation has to be *deferred* until the triple-tap window closes: otherwise
+     * tap 1 covers the footer with another activity and taps 2 and 3 can never land
+     * on it. The deadline is absolute rather than pushed out by every tap, so a slow
+     * burst cannot postpone Settings indefinitely.
+     */
+    private val versionTapHandler = Handler(Looper.getMainLooper())
+    private var versionTapCount = 0
+    private var versionFirstTapAt = 0L
+    private val openSettingsRunnable = Runnable {
+        versionTapCount = 0
+        // Never navigate from a finishing or backgrounded activity: the deferred
+        // single-tap can otherwise land after the user has already left.
+        if (isFinishing || isDestroyed) return@Runnable
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
     /**
      * Screen-share consent gate — the only path into [enableProtection]. If the
      * user presses "Cancel" nothing has been started yet, so the app simply
@@ -89,7 +111,10 @@ class MainActivity : AppCompatActivity() {
 
     private val protectionStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            updateProtectionState(intent.getBooleanExtra(ProtectionState.EXTRA_ACTIVE, false))
+            // The broadcast reports the persisted switch; the card may only claim
+            // "Đang bảo vệ" while a bubble is really on screen, so re-derive from
+            // both instead of trusting the extra alone.
+            syncProtectionState()
         }
     }
 
@@ -108,12 +133,65 @@ class MainActivity : AppCompatActivity() {
         protectionButton.setOnClickListener {
             if (isProtecting) stopProtection() else startProtection()
         }
-        // The footer version doubles as the link into Page 2 (Settings).
-        footerVersion.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        // The footer version is the link into Page 2 (Settings) on a single tap, and
+        // into the hidden developer page on a triple tap.
+        footerVersion.setOnClickListener { registerVersionTap() }
+
+        syncProtectionState()
+    }
+
+    /**
+     * Counts taps on the version footer. Three inside [TRIPLE_CLICK_WINDOW_MS] open
+     * the hidden developer page; anything fewer falls through to Page 2 (Settings)
+     * once the window closes.
+     */
+    private fun registerVersionTap() {
+        val now = SystemClock.uptimeMillis()
+        if (versionTapCount > 0 && isClickBurstOpen(now - versionFirstTapAt)) {
+            versionTapCount++
+        } else {
+            versionTapCount = 1
+            versionFirstTapAt = now
         }
 
-        updateProtectionState(ProtectionState.isActive(this))
+        if (isTripleClick(versionTapCount, now - versionFirstTapAt)) {
+            versionTapHandler.removeCallbacks(openSettingsRunnable)
+            versionTapCount = 0
+            startActivity(Intent(this, HiddenSettingsActivity::class.java))
+            return
+        }
+        versionTapHandler.removeCallbacks(openSettingsRunnable)
+        versionTapHandler.postAtTime(
+            openSettingsRunnable,
+            versionFirstTapAt + TRIPLE_CLICK_WINDOW_MS
+        )
+    }
+
+    /**
+     * Repaints the card from the *effective* protection state — the persisted
+     * switch AND-ed with the bubble service's live liveness flag.
+     *
+     * The persisted flag on its own can outlive the bubble: a process kill, a
+     * reboot or a force-stop all leave it set with nothing rendered, which is how
+     * the Home screen came to claim "Đang bảo vệ" over an empty screen. A stale
+     * flag is also written back to false, so the Lifecycle Rules hold
+     * ("Force-stopping the app disables protection and hides the bubble",
+     * "Restarting the device disables protection and hides the bubble").
+     */
+    private fun syncProtectionState() {
+        val persisted = ProtectionState.isActive(this)
+        // Re-derive the Component-6 lock gate *before* reading the flag. If the
+        // process was frozen while the screen was off, the unlock broadcast may never
+        // have been delivered and the window would still be GONE — this is what turns
+        // the bubble back on in the same pass the badge is painted.
+        val bubbleVisible = FloatingBubbleService.syncBubbleVisibility()
+        if (persisted && !bubbleVisible && !FloatingBubbleService.isHiddenByLockOnly) {
+            // Self-heal: nothing is on screen and nothing is parked behind the
+            // keyguard, so protection cannot be in effect. setActive also
+            // re-broadcasts, keeping any other listener in step.
+            ProtectionState.setActive(this, false)
+        }
+        updateProtectionState(isProtectionEffective(persisted, bubbleVisible))
     }
 
     /**
@@ -242,17 +320,39 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         unregisterReceiver(captureStatusReceiver)
         unregisterReceiver(protectionStateReceiver)
+        // Drop a still-pending single-tap navigation: the user has left the screen,
+        // so Page 2 must not open behind whatever they went to.
+        versionTapHandler.removeCallbacks(openSettingsRunnable)
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
-        updateProtectionState(ProtectionState.isActive(this))
+        // Component 6: the user is looking at this screen, so the device is unlocked.
+        // Force the lock gate to be re-derived first — after a screen-off the process
+        // may have been frozen and never received ACTION_USER_PRESENT, leaving the
+        // bubble GONE while protection is still enabled.
+        FloatingBubbleService.syncBubbleVisibility()
+        // granting_permissions.md: "If a previously granted permission is revoked,
+        // the system disables the affected feature and asks the user to grant the
+        // permission again." Without the overlay permission no bubble can exist, so
+        // an ongoing protection session is no longer real.
+        if (FloatingBubbleService.isProtecting(this) && !Settings.canDrawOverlays(this)) {
+            stopProtection()
+            Toast.makeText(this, R.string.overlay_permission_revoked, Toast.LENGTH_LONG).show()
+        }
+        syncProtectionState()
         if (waitingForOverlayPermission) {
             waitingForOverlayPermission = false
             // Overlay granted -> continue with the screen-share consent dialog.
             if (Settings.canDrawOverlays(this)) requestScreenCapture()
         }
+    }
+
+    override fun onDestroy() {
+        // Never leave a deferred Settings navigation queued against a dead activity.
+        versionTapHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
     }
 
     private fun color(@ColorRes id: Int) = ContextCompat.getColor(this, id)
