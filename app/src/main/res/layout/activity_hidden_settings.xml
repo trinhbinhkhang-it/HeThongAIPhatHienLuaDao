@@ -215,6 +215,55 @@
                 android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
                 android:textColor="@color/text_secondary" />
 
+            <!-- ===== Face-recognition gate ("Chế độ nhận diện khuôn mặt") ===== -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_detection"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_sm">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hidden_face_gate_title"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xxs"
+                        android:text="@string/hidden_face_gate_summary"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_face_gate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:contentDescription="@string/hidden_face_gate_title" />
+            </LinearLayout>
+
             <!-- Save (primary pill) -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_hidden_save"

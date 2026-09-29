@@ -1,6 +1,7 @@
 package com.voiceshield.ai
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -16,6 +17,10 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewConfiguration
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -25,6 +30,7 @@ import androidx.annotation.ColorRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
+import kotlin.math.abs
 
 /**
  * Pure gate for the system screen-share consent result: protection may only be
@@ -43,11 +49,14 @@ fun isScreenCaptureGranted(resultCode: Int, hasData: Boolean): Boolean =
  * A single status card holds the shield well, title, description, state badge
  * and the primary pill CTA that both activates and deactivates protection.
  * The underlined version footer is the entry point to Page 2 (Settings), where
- * the scan mode (Safe / Warning) is configured and persisted.
+ * the scan mode (Safe / Warning) is configured — reached by pressing and holding
+ * it for [VERSION_LONG_PRESS_MS].
  */
 class MainActivity : AppCompatActivity() {
 
     private var isProtecting = false
+    /** False until the card has been painted once, so the first pass always draws. */
+    private var statePainted = false
     private var waitingForOverlayPermission = false
 
     /** True between launching the screen-share consent dialog and its result. */
@@ -61,23 +70,57 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusBadgeIcon: ImageView
     private lateinit var footerVersion: TextView
 
-    // ── Hidden developer page: triple-tap the version footer ──────────────────
+    // ── Version footer: 2 s hold -> Page 2, triple tap -> hidden dev page ─────
     /**
-     * A single tap on the version footer opens Page 2 (Settings), so the ordinary
-     * navigation has to be *deferred* until the triple-tap window closes: otherwise
-     * tap 1 covers the footer with another activity and taps 2 and 3 can never land
-     * on it. The deadline is absolute rather than pushed out by every tap, so a slow
-     * burst cannot postpone Settings indefinitely.
+     * The footer has two deliberate gestures and no accidental one.
+     *
+     * A press-and-hold of [VERSION_LONG_PRESS_MS] opens Page 2 (Settings); a plain tap
+     * now does nothing at all, which is the point — the hold keeps the scan-mode page off
+     * the accidental path. A triple tap still opens the hidden developer page.
+     *
+     * Because a tap no longer navigates, the old trick of *deferring* the single-tap
+     * navigation until the triple-tap window closed is gone with it: taps 2 and 3 now land
+     * on a footer that is still on screen, so nothing has to be postponed.
      */
-    private val versionTapHandler = Handler(Looper.getMainLooper())
+    private val uiHandler = Handler(Looper.getMainLooper())
     private var versionTapCount = 0
     private var versionFirstTapAt = 0L
+    private var versionDownRawX = 0f
+    private var versionDownRawY = 0f
+    private var versionDownAt = 0L
+    /** True once the finger travelled past the touch slop, which voids the hold. */
+    private var versionHoldBroken = false
+    /** True once the hold completed, so ACTION_UP cannot navigate a second time. */
+    private var versionLongPressFired = false
+
+    /** Fires exactly [VERSION_LONG_PRESS_MS] into an unbroken hold on the footer. */
     private val openSettingsRunnable = Runnable {
-        versionTapCount = 0
-        // Never navigate from a finishing or backgrounded activity: the deferred
-        // single-tap can otherwise land after the user has already left.
+        versionLongPressFired = true
+        // Never navigate from a finishing or backgrounded activity: the hold can
+        // otherwise complete after the user has already left the screen.
         if (isFinishing || isDestroyed) return@Runnable
+        footerVersion.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
         startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    /**
+     * Re-derives the card from the bubble's real state twice a second while this screen
+     * is visible.
+     *
+     * Broadcasts alone cannot carry the state. The X-target dismiss normally happens
+     * inside another app — which is the whole point of a floating bubble — and by then
+     * this activity is stopped, its receivers are unregistered and the broadcast is
+     * simply dropped. A process reclaim is worse: nothing is left alive to send one. The
+     * tick is what turns "Đang bảo vệ" into a claim the app continuously verifies instead
+     * of an event it happened to hear, which is exactly the confusion the spec forbids:
+     * "The interface shouldn't become 'Đang bảo vệ' if the app's bubble is not displayed
+     * on the screen."
+     */
+    private val stateReconcileRunnable = object : Runnable {
+        override fun run() {
+            syncProtectionState()
+            uiHandler.postDelayed(this, STATE_RECONCILE_INTERVAL_MS)
+        }
     }
 
     /**
@@ -111,9 +154,10 @@ class MainActivity : AppCompatActivity() {
 
     private val protectionStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            // The broadcast reports the persisted switch; the card may only claim
-            // "Đang bảo vệ" while a bubble is really on screen, so re-derive from
-            // both instead of trusting the extra alone.
+            // Registered for both ACTION_CHANGED (the persisted switch) and
+            // ACTION_BUBBLE_VISIBILITY_CHANGED (whether a window is really on screen).
+            // Neither extra is trusted on its own: the card may only claim "Đang bảo vệ"
+            // while a bubble exists, so every signal re-derives from both.
             syncProtectionState()
         }
     }
@@ -133,17 +177,20 @@ class MainActivity : AppCompatActivity() {
         protectionButton.setOnClickListener {
             if (isProtecting) stopProtection() else startProtection()
         }
-        // The footer version is the link into Page 2 (Settings) on a single tap, and
-        // into the hidden developer page on a triple tap.
+        // A plain tap only counts towards the hidden-page triple tap; Page 2 (Settings)
+        // needs a two-second hold, handled by the touch listener below.
         footerVersion.setOnClickListener { registerVersionTap() }
+        footerVersion.setOnTouchListener { view, event -> onVersionFooterTouch(view, event) }
+        footerVersion.contentDescription = getString(R.string.version_footer_desc)
 
         syncProtectionState()
     }
 
     /**
-     * Counts taps on the version footer. Three inside [TRIPLE_CLICK_WINDOW_MS] open
-     * the hidden developer page; anything fewer falls through to Page 2 (Settings)
-     * once the window closes.
+     * Counts taps on the version footer. Three inside [TRIPLE_CLICK_WINDOW_MS] open the
+     * hidden developer page. A tap no longer navigates anywhere on its own — Page 2 is
+     * reached by the two-second hold — so there is nothing left to defer and no way for
+     * the footer to be covered between taps.
      */
     private fun registerVersionTap() {
         val now = SystemClock.uptimeMillis()
@@ -155,16 +202,77 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (isTripleClick(versionTapCount, now - versionFirstTapAt)) {
-            versionTapHandler.removeCallbacks(openSettingsRunnable)
             versionTapCount = 0
+            uiHandler.removeCallbacks(openSettingsRunnable)
             startActivity(Intent(this, HiddenSettingsActivity::class.java))
-            return
         }
-        versionTapHandler.removeCallbacks(openSettingsRunnable)
-        versionTapHandler.postAtTime(
-            openSettingsRunnable,
-            versionFirstTapAt + TRIPLE_CLICK_WINDOW_MS
-        )
+    }
+
+    /**
+     * The press-and-hold that opens Page 2 (Settings).
+     *
+     * The hold is armed on ACTION_DOWN for exactly [VERSION_LONG_PRESS_MS]. Travelling
+     * past the touch slop voids it, so a scroll or a shaky finger cannot open Settings;
+     * [isVersionLongPress] is the single source of truth for whether the hold counted and
+     * is what the unit tests pin. ACTION_UP either completes the hold (when the posted
+     * callback was somehow still pending) or hands the gesture to the click listener,
+     * which only counts triple taps.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun onVersionFooterTouch(view: View, event: MotionEvent): Boolean =
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                versionDownRawX = event.rawX
+                versionDownRawY = event.rawY
+                versionDownAt = SystemClock.uptimeMillis()
+                versionHoldBroken = false
+                versionLongPressFired = false
+                view.isPressed = true
+                uiHandler.removeCallbacks(openSettingsRunnable)
+                uiHandler.postDelayed(openSettingsRunnable, VERSION_LONG_PRESS_MS)
+                true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (!versionHoldBroken && movedPastTouchSlop(view, event)) {
+                    versionHoldBroken = true
+                    uiHandler.removeCallbacks(openSettingsRunnable)
+                    view.isPressed = false
+                }
+                // Keep the gesture once we own it; release it if the hold was voided so
+                // the parent can scroll.
+                !versionHoldBroken
+            }
+
+            MotionEvent.ACTION_UP -> {
+                uiHandler.removeCallbacks(openSettingsRunnable)
+                view.isPressed = false
+                val heldMs = SystemClock.uptimeMillis() - versionDownAt
+                when {
+                    // The hold already completed while the finger was still down, and it
+                    // has navigated — do not navigate again and do not count a tap.
+                    versionLongPressFired -> Unit
+                    isVersionLongPress(heldMs, versionHoldBroken) -> openSettingsRunnable.run()
+                    else -> view.performClick()
+                }
+                true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                uiHandler.removeCallbacks(openSettingsRunnable)
+                versionHoldBroken = true
+                view.isPressed = false
+                true
+            }
+
+            else -> false
+        }
+
+    /** Whether the finger has travelled far enough that this is no longer a hold. */
+    private fun movedPastTouchSlop(view: View, event: MotionEvent): Boolean {
+        val slop = ViewConfiguration.get(view.context).scaledTouchSlop
+        return abs(event.rawX - versionDownRawX) > slop ||
+            abs(event.rawY - versionDownRawY) > slop
     }
 
     /**
@@ -200,6 +308,13 @@ class MainActivity : AppCompatActivity() {
      * Active   -> terracotta pill "Tat ung dung" and a mint check badge.
      */
     private fun updateProtectionState(active: Boolean) {
+        // The reconcile tick calls this every STATE_RECONCILE_INTERVAL_MS and so does
+        // every focus change, so an unchanged card must not be repainted: re-assigning
+        // backgroundTintList / rippleColor makes MaterialButton rebuild its background and
+        // ripple drawables, which would churn twice a second for no visible reason (and
+        // could cut a ripple short under the user's finger).
+        if (statePainted && isProtecting == active) return
+        statePainted = true
         isProtecting = active
         protectionTitle.text = getString(R.string.protection_title)
 
@@ -309,21 +424,41 @@ class MainActivity : AppCompatActivity() {
             IntentFilter(ScreenCaptureService.ACTION_CAPTURE_STATUS),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Both actions, because either one alone can be wrong: the persisted switch
+        // moves without the bubble appearing or disappearing, and the bubble appears or
+        // disappears (lock screen, X target, a reclaimed overlay) without the switch
+        // moving.
         ContextCompat.registerReceiver(
             this,
             protectionStateReceiver,
-            IntentFilter(ProtectionState.ACTION_CHANGED),
+            IntentFilter().apply {
+                addAction(ProtectionState.ACTION_CHANGED)
+                addAction(FloatingBubbleService.ACTION_BUBBLE_VISIBILITY_CHANGED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Start reconciling immediately rather than after the first interval, so a state
+        // change that happened while this screen was stopped is painted on the very next
+        // frame instead of up to STATE_RECONCILE_INTERVAL_MS later.
+        uiHandler.removeCallbacks(stateReconcileRunnable)
+        stateReconcileRunnable.run()
     }
 
     override fun onStop() {
         unregisterReceiver(captureStatusReceiver)
         unregisterReceiver(protectionStateReceiver)
-        // Drop a still-pending single-tap navigation: the user has left the screen,
-        // so Page 2 must not open behind whatever they went to.
-        versionTapHandler.removeCallbacks(openSettingsRunnable)
+        // Stop reconciling and drop a still-pending hold navigation: the user has left
+        // the screen, so Page 2 must not open behind whatever they went to.
+        uiHandler.removeCallbacksAndMessages(null)
         super.onStop()
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // Returning from Recents, the notification shade or the screen-share dialog is
+        // exactly when a bubble dismissed elsewhere has to show up on the card straight
+        // away — no lifecycle callback fires for those, so focus is the signal.
+        if (hasFocus) syncProtectionState()
     }
 
     override fun onResume() {
@@ -350,8 +485,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Never leave a deferred Settings navigation queued against a dead activity.
-        versionTapHandler.removeCallbacksAndMessages(null)
+        // Never leave a pending hold navigation or reconcile tick queued against a dead
+        // activity.
+        uiHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -362,5 +498,13 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val TAG = "SafeCallsCTMainActivity"
         const val NOTIFICATION_PERMISSION_REQUEST = 10
+
+        /**
+         * How often the Home card is re-derived from the bubble's real state while this
+         * screen is visible. Half a second is well under any delay a user would notice
+         * and cheap enough to leave running: one SharedPreferences read plus one
+         * KeyguardManager read per tick.
+         */
+        const val STATE_RECONCILE_INTERVAL_MS = 500L
     }
 }

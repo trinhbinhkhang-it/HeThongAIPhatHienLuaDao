@@ -12,6 +12,7 @@
     <string name="status_icon_content_desc">Trạng thái bảo vệ</string>
     <string name="screen_share_cancelled">Quyền chia sẻ màn hình đã hủy</string>
     <string name="footer_version"><u>Version 1.0.1</u></string>
+    <string name="version_footer_desc">Giữ 2 giây để mở cấu hình chế độ quét. Chạm ba lần để mở cấu hình ẩn.</string>
 
     <!-- ===== Floating bubble panel ===== -->
     <string name="panel_title">BẢO VỆ CUỘC GỌI</string>
@@ -63,7 +64,14 @@
     <string name="btn_hidden_reset">Khôi phục mặc định</string>
     <string name="btn_hidden_back">Quay lại</string>
     <string name="hidden_saved">Đã lưu khoảng thời gian quét</string>
-    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây</string>
+    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây, nhận diện khuôn mặt tắt</string>
+
+    <!-- ===== Hidden developer page: face-recognition gate ===== -->
+    <string name="hidden_section_detection">NHẬN DIỆN KHUÔN MẶT</string>
+    <string name="hidden_face_gate_title">Chế độ nhận diện khuôn mặt</string>
+    <string name="hidden_face_gate_summary">Khi bật, sau khi chạm hai lần vào bubble, ứng dụng sẽ chờ đến khi có khuôn mặt người thật sự xuất hiện trên màn hình rồi mới bắt đầu đếm khoảng thời gian ngẫu nhiên để đưa ra cảnh báo.</string>
+    <string name="hidden_face_gate_on">Đã bật chế độ nhận diện khuôn mặt</string>
+    <string name="hidden_face_gate_off">Đã tắt chế độ nhận diện khuôn mặt</string>
 
     <!-- ===== Bubble scan popups ===== -->
     <string name="popup_safe_message">Hệ thống đánh giá cuộc gọi An Toàn</string>
@@ -76,6 +84,7 @@
     <!-- ===== Floating bubble accessibility ===== -->
     <string name="bubble_desc_idle">SafeCallsCT: chạm hai lần để bắt đầu quét</string>
     <string name="bubble_desc_scanning">SafeCallsCT: đang quét, chạm hai lần để dừng</string>
+    <string name="bubble_desc_waiting_face">SafeCallsCT: đang chờ khuôn mặt xuất hiện trên màn hình để bắt đầu quét</string>
     <string name="bubble_dismiss_target_desc">Thả bubble vào đây để tắt bảo vệ</string>
 
     <!-- ===== Permission revocation (granting_permissions.md) ===== -->

@@ -27,6 +27,7 @@ import android.os.VibratorManager
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.View
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
@@ -121,6 +122,82 @@ fun dismissTargetCenterY(screenHeightPx: Int, bottomMarginPx: Int, windowSizePx:
     screenHeightPx - (bottomMarginPx + windowSizePx / 2f)
 
 /**
+ * Pure glyph-insetting rule for the X target.
+ *
+ * The circle is laid out at its *expanded* diameter (see [dismissTargetWindowSize])
+ * and drawn at scale 1.0, so the padding that used to sit on the small base circle
+ * has to be grown by the same factor — otherwise the X glyph would swell along with
+ * it and stop looking like the same icon at a different size.
+ *
+ * Top-level and Android-free so it is JVM-unit-testable.
+ */
+fun dismissTargetGlyphPadding(basePaddingPx: Int, expandedScale: Float): Int =
+    ceil(basePaddingPx.coerceAtLeast(0) * expandedScale).toInt().coerceAtLeast(0)
+
+/**
+ * Pure collapsed-scale rule: the factor that shrinks the expanded X circle down to
+ * exactly the floating bubble's diameter, which is what disable_floating_bubble.md
+ * asks for ("the size of the X bubble will shrink to the same size as the floating
+ * bubble").
+ *
+ * Expressed against the *expanded* size because that is now the circle's laid-out
+ * size. A non-positive expanded size is guarded so the division can never hand
+ * NaN/Infinity to View.animate().
+ */
+fun dismissCollapsedScale(bubbleSizePx: Int, expandedSizePx: Int): Float =
+    if (expandedSizePx <= 0) 1f else bubbleSizePx.toFloat() / expandedSizePx.toFloat()
+
+/**
+ * Pure "is the overlay window still really there" rule.
+ *
+ * The process-local latch raised in showBubble() can be stranded at true by any
+ * teardown path that never reaches onDestroy() — the system reclaiming the overlay,
+ * a swallowed removeView(), an exception thrown half-way through teardown. Reading
+ * the live View is the only authority on whether a window still exists.
+ *
+ * This is the fix behind enable_floating_bubble.md's "The interface shouldn't become
+ * 'Đang bảo vệ' if the app's bubble is not displayed on the screen": Home stops
+ * trusting bookkeeping and starts asking the window.
+ *
+ * Only ever consulted once [canVerifyWindowAttachment] allows it — see there for why
+ * reading the View too early is worse than not reading it at all.
+ */
+fun isOverlayWindowAttached(
+    viewInitialized: Boolean,
+    attachedToWindow: Boolean,
+    hasWindowToken: Boolean
+): Boolean = viewInitialized && attachedToWindow && hasWindowToken
+
+/**
+ * Pure rule for whether the live View may be trusted to correct the liveness latch.
+ *
+ * `WindowManager.addView()` returns *before* the first traversal, so
+ * `View.isAttachedToWindow` is still false — and `windowToken` still null — for a
+ * frame or two on a window that is perfectly healthy. Verifying inside that window
+ * would tear down a bubble that was just shown, which is worse than the staleness it
+ * is meant to cure, so verification only starts once the attach has had time to
+ * settle. Until then the latch (raised only after a *successful* addView) is the
+ * better authority.
+ */
+fun canVerifyWindowAttachment(attachSettled: Boolean, viewInitialized: Boolean): Boolean =
+    attachSettled && viewInitialized
+
+/**
+ * Pure gate for the hidden "Chế độ nhận diện khuôn mặt" developer option.
+ *
+ * With the gate OFF the random popup timer is armed the instant a double-tap starts
+ * the scan — the historical behaviour, and what enable_floating_bubble.md describes.
+ * With it ON the scan must first see a real human face on screen, so the timer stays
+ * unarmed and no warning can fire until ScreenCaptureService reports one.
+ *
+ * Deliberately a top-level Android-free function, like every other rule here, so the
+ * gate is JVM-unit-testable.
+ */
+fun shouldArmScanTimer(faceGateEnabled: Boolean, faceDetected: Boolean): Boolean =
+    !faceGateEnabled || faceDetected
+
+
+/**
  * Pure rule for the Home status card: the app may only claim "Đang bảo vệ" while a
  * bubble really is on screen.
  *
@@ -193,12 +270,33 @@ class FloatingBubbleService : Service() {
     private var isFloating = false
 
     /**
+     * True once the overlay window has had time to finish its first traversal after
+     * `WindowManager.addView()`.
+     *
+     * Until then `View.isAttachedToWindow` is still false on a perfectly healthy
+     * window, so the liveness check in [refreshBubbleLiveness] must stay off — see
+     * [canVerifyWindowAttachment]. Armed by a short postDelayed in showBubble().
+     */
+    private var windowAttachSettled = false
+
+    /**
      * True while a scan is running. Drives the bubble visual state:
      * idle = neutral surface + hairline + secondary shield, no ripple;
      * scanning = mint bubble + white shield + looping ripple.
      */
     private var scanning = false
     private var rippleDuration = RIPPLE_DURATION_MS
+
+    /**
+     * True while a face-gated scan is parked waiting for the first real human face to
+     * appear on screen. Set from the hidden "Chế độ nhận diện khuôn mặt" developer
+     * option: while it holds, the random popup timer is *not* armed, so no warning can
+     * fire. Cleared the moment ScreenCaptureService reports a face.
+     */
+    private var awaitingFace = false
+
+    /** True once [armScanTimer] has scheduled the popup for the current scan. */
+    private var scanTimerArmed = false
 
     /** Guards the blink recursion so stopBlink() can't be raced by an end-action. */
     private var isBlinking = false
@@ -282,6 +380,10 @@ class FloatingBubbleService : Service() {
      */
     private val scanRunnable = Runnable {
         if (!scanning) return@Runnable
+        // Defence in depth for the face gate: a scan still parked waiting for a real
+        // face must never produce a result, even if something armed the timer early.
+        if (awaitingFace || !scanTimerArmed) return@Runnable
+        scanTimerArmed = false
         when (ProtectionState.getMode(this)) {
             ScanMode.SAFE -> showSafePopup()
             ScanMode.WARNING -> {
@@ -291,11 +393,17 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    /** Page 2 can change the mode mid-scan: re-roll the pending window. */
+    /**
+     * Page 2 can change the mode mid-scan: re-roll the pending window.
+     *
+     * A face-gated scan that is still waiting has no window to re-roll, and arming one
+     * here would silently defeat the "Chế độ nhận diện khuôn mặt" gate — so the re-roll
+     * is skipped until releaseFaceGateIfSatisfied() has run.
+     */
     private val modeChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ProtectionState.ACTION_MODE_CHANGED) return
-            if (scanning) armScanTimer()
+            if (scanning && !awaitingFace) armScanTimer()
         }
     }
 
@@ -303,7 +411,32 @@ class FloatingBubbleService : Service() {
     private val intervalsChangedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != ProtectionState.ACTION_INTERVALS_CHANGED) return
-            if (scanning) armScanTimer()
+            if (scanning && !awaitingFace) armScanTimer()
+        }
+    }
+
+    /**
+     * The hidden page can flip "Chế độ nhận diện khuôn mặt" while a scan is live, so the
+     * running scan follows the new setting instead of waiting for the next double-tap:
+     * gate off (or a face already in frame) releases a parked scan immediately, gate on
+     * with no face retracts a pending window.
+     */
+    private val faceGateChangedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ProtectionState.ACTION_FACE_GATE_CHANGED) return
+            if (!scanning) return
+            val gateSatisfied = shouldArmScanTimer(
+                ProtectionState.isFaceGateEnabled(this@FloatingBubbleService),
+                participantFaceDetected
+            )
+            if (gateSatisfied) {
+                releaseFaceGateIfSatisfied()
+            } else if (!awaitingFace) {
+                awaitingFace = true
+                scanTimerArmed = false
+                handler.removeCallbacks(scanRunnable)
+                render()
+            }
         }
     }
 
@@ -315,6 +448,8 @@ class FloatingBubbleService : Service() {
             // Always remember the latest state, even while idle: the user may
             // double-tap later and no new broadcast will arrive by then.
             participantFaceDetected = detected
+            // "Chế độ nhận diện khuôn mặt": this is the event a parked scan waits for.
+            releaseFaceGateIfSatisfied()
             // Idle bubble -> ignored. Only a double-tap scan consumes results.
             if (shouldApplyFaceDetection(scanning, detected)) beginResultSequence()
         }
@@ -407,6 +542,13 @@ class FloatingBubbleService : Service() {
             IntentFilter(ProtectionState.ACTION_INTERVALS_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        // Same page can toggle the "Chế độ nhận diện khuôn mặt" gate mid-scan.
+        ContextCompat.registerReceiver(
+            this,
+            faceGateChangedReceiver,
+            IntentFilter(ProtectionState.ACTION_FACE_GATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
         // Component 6. All three of these are *protected* system broadcasts, so only
         // the OS can send them and RECEIVER_EXPORTED cannot be spoofed by another app.
         // EXPORTED (rather than NOT_EXPORTED) is deliberate: a NOT_EXPORTED
@@ -439,23 +581,38 @@ class FloatingBubbleService : Service() {
         // setActive(false) broadcast below) must already see "no bubble on screen".
         bubbleAttached = false
         bubbleHiddenByLock = false
+        windowAttachSettled = false
         liveInstanceRef = null
-        // Cancel the pending scan popup before the blanket handler flush.
-        handler.removeCallbacks(scanRunnable)
-        handler.removeCallbacks(lockWatchdog)
-        stopBlink()
-        handler.removeCallbacksAndMessages(null)
-        stopFloating()
-        stopRipple()
-        ProtectionState.setActive(this, false)
-        unregisterReceiver(faceDetectionReceiver)
-        unregisterReceiver(modeChangedReceiver)
-        unregisterReceiver(intervalsChangedReceiver)
-        unregisterReceiver(screenStateReceiver)
-        removePanel()
+        // Announced *before* the teardown work rather than after it. This is the signal
+        // that makes the Home card stop claiming "Đang bảo vệ" the instant the bubble
+        // goes — including when the X target dismissed it from inside another app while
+        // this activity's ACTION_CHANGED receiver was unregistered and could not hear it.
+        publishBubbleVisibility()
+
+        // Every remaining step is isolated. A throwing teardown used to be able to skip
+        // everything after it — in particular the setActive(false) below — and that is
+        // exactly how the persisted switch came to outlive the bubble.
+        runCatching {
+            // Cancel the pending scan popup before the blanket handler flush.
+            handler.removeCallbacks(scanRunnable)
+            handler.removeCallbacks(lockWatchdog)
+            stopBlink()
+            handler.removeCallbacksAndMessages(null)
+            stopFloating()
+            stopRipple()
+        }
+        runCatching { ProtectionState.setActive(this, false) }
+        runCatching { unregisterReceiver(faceDetectionReceiver) }
+        runCatching { unregisterReceiver(modeChangedReceiver) }
+        runCatching { unregisterReceiver(intervalsChangedReceiver) }
+        runCatching { unregisterReceiver(faceGateChangedReceiver) }
+        runCatching { unregisterReceiver(screenStateReceiver) }
+        runCatching { removePanel() }
         // The X target is a second overlay window: it must never outlive the bubble.
-        hideDismissTarget()
+        runCatching { hideDismissTarget() }
         runCatching { windowManager.removeView(bubbleContainer) }
+        // Final restatement, in case a step above changed what is really on screen.
+        publishBubbleVisibility()
         super.onDestroy()
     }
 
@@ -597,6 +754,7 @@ class FloatingBubbleService : Service() {
         // require ("Force-stopping the app disables protection and hides the
         // bubble" / "Restarting the device disables protection").
         bubbleAttached = true
+        windowAttachSettled = false
         liveInstanceRef = WeakReference(this)
         ProtectionState.setActive(this, true)
         render()
@@ -605,6 +763,13 @@ class FloatingBubbleService : Service() {
         // keyguard is up must not draw), then keep re-deriving it so a missed or
         // freezer-deferred unlock broadcast can never strand the bubble invisible.
         applyLockVisibility()
+        // Tell Home the bubble is up. setActive() above reported the *switch*; this is
+        // the signal that carries "a window is really on screen now".
+        publishBubbleVisibility()
+        // addView() has returned but the first traversal has not run yet, so the View
+        // still reports "not attached". Only start believing it once that settles —
+        // see canVerifyWindowAttachment().
+        handler.postDelayed({ windowAttachSettled = true }, ATTACH_SETTLE_MS)
         handler.removeCallbacks(lockWatchdog)
         handler.postDelayed(lockWatchdog, LOCK_WATCHDOG_INTERVAL_MS)
     }
@@ -620,6 +785,15 @@ class FloatingBubbleService : Service() {
     private fun applyLockVisibility() {
         if (!::bubbleContainer.isInitialized) return
 
+        // Ask the live window whether it still exists before anything else. A bubble
+        // the system reclaimed without ever calling onDestroy() would otherwise keep
+        // the liveness latch true forever — which is exactly how Home came to show
+        // "Đang bảo vệ - Tắt ứng dụng" over an empty screen.
+        if (refreshBubbleLiveness()) {
+            stopProtection()
+            return
+        }
+
         if (isDeviceLockedNow()) {
             if (!bubbleHiddenByLock) {
                 // Entering a lock period. A gesture can be mid-flight, so drop the X
@@ -630,6 +804,7 @@ class FloatingBubbleService : Service() {
                 bubbleHiddenByLock = true
             }
             bubbleContainer.visibility = View.GONE
+            publishBubbleVisibility()
             return
         }
 
@@ -646,6 +821,53 @@ class FloatingBubbleService : Service() {
         // no-op when nothing changed, and re-asserting is exactly what unsticks a
         // window left GONE by a ACTION_USER_PRESENT that never arrived.
         bubbleContainer.visibility = View.VISIBLE
+        publishBubbleVisibility()
+    }
+
+    /**
+     * Re-reads the live overlay window and corrects the liveness latch against it.
+     *
+     * @return true when the latch had to be *cleared* — the window is gone even though
+     * the service still believed a bubble existed. Callers must tear the session down.
+     *
+     * A no-op until [canVerifyWindowAttachment] allows it: `addView()` returns before
+     * the first traversal, and trusting `isAttachedToWindow` during that gap would
+     * destroy a bubble that was just shown.
+     */
+    private fun refreshBubbleLiveness(): Boolean {
+        if (!canVerifyWindowAttachment(windowAttachSettled, ::bubbleContainer.isInitialized)) {
+            return false
+        }
+        val attached = isOverlayWindowAttached(
+            viewInitialized = true,
+            attachedToWindow = bubbleContainer.isAttachedToWindow,
+            hasWindowToken = bubbleContainer.windowToken != null
+        )
+        if (attached == bubbleAttached) return false
+        bubbleAttached = attached
+        publishBubbleVisibility()
+        return !attached
+    }
+
+    /**
+     * Announces the bubble's real on-screen state to whoever is listening (Home).
+     *
+     * De-duplicated against the last published value so the once-a-second lock
+     * watchdog cannot spam identical broadcasts. Deliberately fire-and-forget inside a
+     * runCatching: reporting state must never be able to break the teardown path that
+     * called it, which is how the badge came to be stranded before.
+     */
+    private fun publishBubbleVisibility() {
+        val visible = isBubbleVisible
+        if (lastPublishedVisibility == visible) return
+        lastPublishedVisibility = visible
+        runCatching {
+            sendBroadcast(
+                Intent(ACTION_BUBBLE_VISIBILITY_CHANGED)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_BUBBLE_VISIBLE, visible)
+            )
+        }
     }
 
     /** Reads the three lock signals behind [isDeviceLockedForBubble]. */
@@ -682,7 +904,12 @@ class FloatingBubbleService : Service() {
 
         bubbleIcon.background = circle(color)
         bubbleIcon.setColorFilter(cTextOnPrimary)
-        bubbleIcon.contentDescription = getString(R.string.bubble_desc_scanning)
+        // A face-gated scan that has not seen a face yet says so, which is the only
+        // feedback the user gets for why nothing is happening.
+        bubbleIcon.contentDescription = getString(
+            if (awaitingFace) R.string.bubble_desc_waiting_face
+            else R.string.bubble_desc_scanning
+        )
         ripple.background = circle(Color.TRANSPARENT, color, 2)
         stopFloating()
         startRippleLoop(duration)
@@ -743,17 +970,28 @@ class FloatingBubbleService : Service() {
      * The window is FLAG_NOT_TOUCHABLE so it can never steal the drag from the
      * bubble, and it only lives for the duration of the gesture.
      *
-     * The circle is a *child* of a larger transparent host window on purpose:
-     * WindowManager clips drawing to the window rectangle, so a 1.5x-scaled circle
-     * inside a circle-sized window loses its extremes and renders as a square.
-     * [dismissTargetWindowSize] sizes the host for the fully expanded circle.
+     * Shape: the host window is sized to the *fully expanded* circle
+     * ([dismissTargetWindowSize]) and the ImageView fills it, so at rest the oval is
+     * inscribed in the window at scale 1.0. That ordering is the whole fix — the
+     * previous version laid the circle out at `dismiss_target_size` and scaled it up
+     * 1.5x, which put the oval's four extremes exactly *on* the window rectangle.
+     * WindowManager clips a window's drawing to that rectangle, so the north/south/
+     * east/west points were cut and the shape read as a square. Nothing is drawn past
+     * the window bounds now, so there is nothing left to clip; [clipToOutline] against
+     * the oval background is kept as a guard for OEM builds that clip the root view
+     * regardless.
      */
     private fun showDismissTarget() {
         if (dismissTarget != null) return
 
-        val size = dimen(R.dimen.dismiss_target_size)
-        val glyphPadding = dimen(R.dimen.dismiss_target_glyph_padding)
-        val windowSize = dismissTargetWindowSize(size, DISMISS_SCALE_EXPANDED)
+        val baseSize = dimen(R.dimen.dismiss_target_size)
+        val windowSize = dismissTargetWindowSize(baseSize, DISMISS_SCALE_EXPANDED)
+        // The view is now the expanded size, so the base padding grows with it or the
+        // X glyph would swell instead of staying the same icon at a larger diameter.
+        val glyphPadding = dismissTargetGlyphPadding(
+            dimen(R.dimen.dismiss_target_glyph_padding),
+            DISMISS_SCALE_EXPANDED
+        )
 
         val target = ImageView(this).apply {
             setImageResource(R.drawable.ic_close)
@@ -762,17 +1000,26 @@ class FloatingBubbleService : Service() {
             setPadding(glyphPadding, glyphPadding, glyphPadding, glyphPadding)
             background = circle(cDismissTargetBg)
             contentDescription = getString(R.string.bubble_dismiss_target_desc)
-            // Resting state is the "large X bubble"; it shrinks to the bubble's own
-            // diameter once the bubble is dragged onto it.
-            scaleX = DISMISS_SCALE_EXPANDED
-            scaleY = DISMISS_SCALE_EXPANDED
+            outlineProvider = ViewOutlineProvider.BACKGROUND
+            clipToOutline = true
+            // Resting state IS the "large X bubble" (1.0 == the expanded window); it
+            // shrinks to the bubble's own diameter once the bubble is dragged onto it.
+            scaleX = DISMISS_SCALE_REST
+            scaleY = DISMISS_SCALE_REST
         }
 
-        // Transparent host, centred on the circle so the scale animation has room.
+        // Transparent host, exactly the size of the resting circle. No clipChildren
+        // escape hatch is needed any more: the child never exceeds the window, which
+        // is precisely what keeps the oval from being squared off.
         val host = FrameLayout(this).apply {
-            clipChildren = false
-            clipToPadding = false
-            addView(target, FrameLayout.LayoutParams(size, size, Gravity.CENTER))
+            background = null
+            addView(
+                target,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
         }
 
         val params = WindowManager.LayoutParams(
@@ -818,7 +1065,7 @@ class FloatingBubbleService : Service() {
         val targetCenterY = dismissTargetCenterY(
             screenHeight,
             dimen(R.dimen.dismiss_target_bottom_margin),
-            dismissTargetWindowSize(dimen(R.dimen.dismiss_target_size), DISMISS_SCALE_EXPANDED)
+            dismissTargetExpandedSize()
         )
 
         val overlapping = isOverDismissTarget(
@@ -844,12 +1091,13 @@ class FloatingBubbleService : Service() {
     }
 
     /**
-     * Grows/shrinks the X circle. The collapsed scale is the bubble's exact
-     * diameter over the target's, so the spec's "shrink to the same size as the
-     * floating bubble" holds for any token values instead of a hard-coded 1.0x.
+     * Grows/shrinks the X circle. The collapsed scale is the bubble's exact diameter
+     * over the *expanded* target diameter — the circle is now laid out at its
+     * expanded size — so the spec's "shrink to the same size as the floating bubble"
+     * holds for any token values instead of a hard-coded 1.0x.
      */
     private fun animateDismissTarget(view: View, collapsed: Boolean) {
-        val scale = if (collapsed) dismissCollapsedScale() else DISMISS_SCALE_EXPANDED
+        val scale = if (collapsed) dismissCollapsedScale() else DISMISS_SCALE_REST
         view.animate().cancel()
         view.animate()
             .scaleX(scale)
@@ -859,8 +1107,18 @@ class FloatingBubbleService : Service() {
             .start()
     }
 
-    private fun dismissCollapsedScale() =
-        dimen(R.dimen.bubble_size).toFloat() / dimen(R.dimen.dismiss_target_size).toFloat()
+    /**
+     * The laid-out diameter of the X circle, which is also the size of the host
+     * window that carries it. Kept in one place so the window, the hit-zone centre
+     * and the collapsed scale can never disagree.
+     */
+    private fun dismissTargetExpandedSize() =
+        dismissTargetWindowSize(dimen(R.dimen.dismiss_target_size), DISMISS_SCALE_EXPANDED)
+
+    private fun dismissCollapsedScale() = dismissCollapsedScale(
+        bubbleSizePx = dimen(R.dimen.bubble_size),
+        expandedSizePx = dismissTargetExpandedSize()
+    )
 
     /** Removes the X target window and clears the overlap/haptic bookkeeping. */
     private fun hideDismissTarget() {
@@ -929,12 +1187,27 @@ class FloatingBubbleService : Service() {
         if (scanning) stopScan() else startScan()
     }
 
-    /** Mint bubble + looping ripple, then arm the mode-specific popup timer. */
+    /**
+     * Mint bubble + looping ripple, then arm the mode-specific popup timer — unless the
+     * hidden "Chế độ nhận diện khuôn mặt" gate is on, in which case the scan parks until
+     * a real human face shows up on screen.
+     */
     private fun startScan() {
         scanning = true
         rippleDuration = RIPPLE_DURATION_MS
+        // Read the gate *before* render(): render() picks the content description from
+        // awaitingFace, so the bubble has to know it is waiting before it repaints.
+        val faceGateOn = ProtectionState.isFaceGateEnabled(this)
+        awaitingFace = !shouldArmScanTimer(faceGateOn, participantFaceDetected)
+        scanTimerArmed = false
         render()
-        armScanTimer()
+        if (awaitingFace) {
+            // No timer, therefore no popup and no notification, until a face arrives.
+            // The bubble stays in its scanning look so the user can see it is working.
+            handler.removeCallbacks(scanRunnable)
+        } else {
+            armScanTimer()
+        }
         // A participant face may already be in frame: it was reported while the
         // bubble was idle (and deliberately ignored), and ScreenCaptureService
         // only re-broadcasts when that state *changes*.
@@ -948,6 +1221,10 @@ class FloatingBubbleService : Service() {
      */
     private fun stopScan() {
         scanning = false
+        // A face-gated scan that never saw a face must not leave its "waiting" flag
+        // behind, or the next double-tap would start out mislabelled.
+        awaitingFace = false
+        scanTimerArmed = false
         handler.removeCallbacks(scanRunnable)
         cancelResultSequence()
         removePanel()
@@ -958,13 +1235,34 @@ class FloatingBubbleService : Service() {
     /**
      * (Re)rolls the popup delay for the mode currently selected on Page 2, using the
      * roll windows from the hidden developer page (spec defaults when untouched).
+     *
+     * Only ever called once the face gate has been satisfied — see [shouldArmScanTimer].
      */
     private fun armScanTimer() {
         handler.removeCallbacks(scanRunnable)
+        scanTimerArmed = true
         handler.postDelayed(
             scanRunnable,
             ProtectionState.scanDelayMsFor(this, ProtectionState.getMode(this))
         )
+    }
+
+    /**
+     * Releases a face-gated scan: arms the random window as soon as [shouldArmScanTimer]
+     * is satisfied, and not before. A no-op for an ungated scan, which is already armed.
+     *
+     * Called both when a face is reported and when the hidden page turns the gate back
+     * off mid-scan, so the gate is re-read from [ProtectionState] rather than assumed.
+     */
+    private fun releaseFaceGateIfSatisfied() {
+        if (!scanning || !awaitingFace) return
+        if (!shouldArmScanTimer(ProtectionState.isFaceGateEnabled(this), participantFaceDetected)) {
+            return
+        }
+        awaitingFace = false
+        armScanTimer()
+        // Repaint so the content description stops saying "waiting for a face".
+        render()
     }
 
     // ── Phase D: scan popups ──────────────────────────────────────────────────
@@ -1436,6 +1734,15 @@ class FloatingBubbleService : Service() {
         private var bubbleHiddenByLock = false
 
         /**
+         * The last value handed to [ACTION_BUBBLE_VISIBILITY_CHANGED], so the
+         * once-a-second watchdog and the repeated applyLockVisibility() assertions do
+         * not spam Home with broadcasts that change nothing. Null until the process has
+         * published once, which makes the very first announcement unconditional.
+         */
+        @Volatile
+        private var lastPublishedVisibility: Boolean? = null
+
+        /**
          * The live service, held *weakly*. Lets the Home screen force the lock gate to
          * be re-derived before it reads [isBubbleVisible] — the definitive self-heal
          * for a process that was frozen with the screen off and therefore never saw
@@ -1469,14 +1776,17 @@ class FloatingBubbleService : Service() {
         val isHiddenByLockOnly: Boolean get() = bubbleAttached && bubbleHiddenByLock
 
         /**
-         * Re-derives the lock gate from the real keyguard state, then reports whether
-         * the bubble is on screen.
+         * Re-derives the lock gate from the real keyguard state *and* re-reads the live
+         * overlay window, then reports whether the bubble is on screen.
          *
-         * MainActivity calls this at the top of syncProtectionState(). Without it, a
-         * window left GONE by a ACTION_USER_PRESENT that never arrived would keep the
-         * badge at "Chưa kích hoạt" even though the device is sitting unlocked in the
-         * user's hand; with it the bubble is restored on the same pass the badge is
-         * read, so the two can never disagree.
+         * MainActivity calls this at the top of syncProtectionState() and on every
+         * reconcile tick. Two different failures are corrected in the same pass:
+         *  - a window left GONE by an ACTION_USER_PRESENT that never arrived, which would
+         *    otherwise keep the badge at "Chưa kích hoạt" on an unlocked device in the
+         *    user's hand; and
+         *  - a liveness latch left true by a teardown that never reached onDestroy(),
+         *    which is how the badge came to claim "Đang bảo vệ - Tắt ứng dụng" over an
+         *    empty screen. See [isOverlayWindowAttached].
          */
         fun syncBubbleVisibility(): Boolean {
             liveInstance?.applyLockVisibility()
@@ -1493,6 +1803,25 @@ class FloatingBubbleService : Service() {
 
         private const val WARNING_CHANNEL = "high_risk_warning"
         private const val WARNING_NOTIFICATION_ID = 42
+
+        /**
+         * Sent every time the bubble's *real* on-screen state changes: attached after
+         * a successful addView(), removed on teardown, or hidden/restored for the lock
+         * screen.
+         *
+         * ProtectionState.ACTION_CHANGED alone cannot carry this. It reports the
+         * persisted switch, and the switch does not move when the bubble is hidden for
+         * the keyguard, reclaimed by the system, or torn down by a path that never
+         * reached setActive(). Home listens for this action too so the card follows the
+         * bubble rather than waiting for the next onResume — which is exactly the gap
+         * that left "Đang bảo vệ - Tắt ứng dụng" on screen over an empty display.
+         */
+        const val ACTION_BUBBLE_VISIBILITY_CHANGED =
+            "com.voiceshield.ai.BUBBLE_VISIBILITY_CHANGED"
+
+        /** Boolean extra on [ACTION_BUBBLE_VISIBILITY_CHANGED]. */
+        const val EXTRA_BUBBLE_VISIBLE = "bubble_visible"
+
         private const val RIPPLE_DURATION_MS = 1_300L
         private const val RIPPLE_DURATION_FAST_MS = 700L
         private const val SNAP_DURATION_MS = 200L
@@ -1503,9 +1832,23 @@ class FloatingBubbleService : Service() {
         /** Component 6 watchdog cadence: one KeyguardManager read per second. */
         private const val LOCK_WATCHDOG_INTERVAL_MS = 1_000L
 
+        /**
+         * How long showBubble() waits after a successful addView() before the live View
+         * is allowed to correct the liveness latch. A frame is ~16 ms, so this is a wide
+         * margin; it only has to outlast the first traversal.
+         */
+        private const val ATTACH_SETTLE_MS = 500L
+
         // ── Drag-to-dismiss X target ──
-        /** Resting scale of the X circle; it collapses to bubble_size on overlap. */
+        /**
+         * How much larger than `dismiss_target_size` the X circle is at rest. This is a
+         * *sizing* factor, not a View scale: the host window and the ImageView are both
+         * laid out at this diameter, so the oval is inscribed at scale 1.0 and can never
+         * have its extremes clipped off by the window rectangle.
+         */
         private const val DISMISS_SCALE_EXPANDED = 1.5f
+        /** View scale of the resting circle — it already *is* the expanded size. */
+        private const val DISMISS_SCALE_REST = 1.0f
         private const val DISMISS_ANIM_DURATION_MS = 160L
         /** Length of the "gently vibrate" pulse fired when the bubble hits the X. */
         private const val HAPTIC_DURATION_MS = 50L

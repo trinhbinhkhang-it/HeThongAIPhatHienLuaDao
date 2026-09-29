@@ -47,15 +47,21 @@ class HiddenSettingsUnitTest {
     }
 
     /**
-     * A single tap must still reach Page 2 (Settings). Because that navigation is
-     * deferred until the window closes, the window has to be wide enough for three
-     * deliberate human taps yet short enough that Settings never feels stuck.
+     * The window has to be wide enough for three deliberate human taps yet short enough
+     * that a user who only meant to tap once is not left waiting.
+     *
+     * It no longer has to accommodate a *deferred* navigation to Page 2: Settings is now
+     * reached by a two-second hold on the footer (see [VersionFooterGestureUnitTest]), so a
+     * plain tap navigates nowhere and taps 2 and 3 always land on a footer that is still
+     * on screen.
      */
     @Test
     fun windowIsWideEnoughForThreeHumanTaps() {
         assertEquals(3, TRIPLE_CLICK_COUNT)
         assertTrue("window too tight for three taps", TRIPLE_CLICK_WINDOW_MS >= 3 * 200L)
-        assertTrue("window too long, Settings would feel stuck", TRIPLE_CLICK_WINDOW_MS <= 1_500L)
+        assertTrue("window too long, a tap would feel unresponsive", TRIPLE_CLICK_WINDOW_MS <= 1_500L)
+        // The burst must close before the hold could fire, or the two gestures collide.
+        assertTrue(TRIPLE_CLICK_WINDOW_MS < VERSION_LONG_PRESS_MS)
     }
 
     // ── Defaults match enable_floating_bubble.md ──

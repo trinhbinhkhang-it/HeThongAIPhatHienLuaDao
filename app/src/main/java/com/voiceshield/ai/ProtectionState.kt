@@ -81,6 +81,7 @@ object ProtectionState {
     private const val KEY_SAFE_MAX = "safe_interval_max_seconds"
     private const val KEY_WARNING_MIN = "warning_interval_min_seconds"
     private const val KEY_WARNING_MAX = "warning_interval_max_seconds"
+    private const val KEY_FACE_GATE = "face_gate_enabled"
 
     const val ACTION_CHANGED = "com.voiceshield.ai.PROTECTION_STATE_CHANGED"
     const val EXTRA_ACTIVE = "active"
@@ -90,6 +91,10 @@ object ProtectionState {
 
     /** Hidden developer page saved a new roll window; a running scan re-arms. */
     const val ACTION_INTERVALS_CHANGED = "com.voiceshield.ai.SCAN_INTERVALS_CHANGED"
+
+    /** Hidden developer page toggled "Chế độ nhận diện khuôn mặt". */
+    const val ACTION_FACE_GATE_CHANGED = "com.voiceshield.ai.FACE_GATE_CHANGED"
+    const val EXTRA_FACE_GATE = "face_gate_enabled"
 
     fun isActive(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ACTIVE, false)
@@ -152,6 +157,27 @@ object ProtectionState {
     /** Restores the enable_floating_bubble.md defaults (Safe 4–7 s, Warning 5–8 s). */
     fun resetIntervals(context: Context) =
         setIntervals(context, DEFAULT_SAFE_INTERVAL, DEFAULT_WARNING_INTERVAL)
+
+    /**
+     * The hidden developer option "Chế độ nhận diện khuôn mặt".
+     *
+     * Defaults to **off**, which is the behaviour enable_floating_bubble.md specifies: a
+     * double-tap arms the random popup window immediately. When it is on, the scan waits
+     * for a real human face to appear on screen before that window — and therefore
+     * before any warning — can start. The rule itself lives in [shouldArmScanTimer].
+     */
+    fun isFaceGateEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_FACE_GATE, false)
+
+    /** Persists the face gate and tells a running scan to follow the new setting. */
+    fun setFaceGateEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_FACE_GATE, enabled).apply()
+        context.sendBroadcast(
+            Intent(ACTION_FACE_GATE_CHANGED)
+                .setPackage(context.packageName)
+                .putExtra(EXTRA_FACE_GATE, enabled)
+        )
+    }
 
     /**
      * The delay the bubble service should actually schedule: the pure
