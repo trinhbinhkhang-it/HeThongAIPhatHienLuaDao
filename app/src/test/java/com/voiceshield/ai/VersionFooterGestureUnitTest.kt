@@ -8,60 +8,83 @@ import org.junit.Test
 /**
  * Pure-JVM tests for the "Version 1.0.1" footer gestures on Page 1.
  *
- * Two deliberate gestures, and no accidental one:
- *  - press-and-hold for [VERSION_LONG_PRESS_MS] -> Page 2 (Settings), where the scan mode
- *    is configured. This *replaces* the single tap that used to navigate there.
- *  - triple tap -> the hidden developer page ([isTripleClick]).
+ * developer_setting_page.md made the hold a *setting*, so these tests are written against
+ * every [HoldDuration] rather than one hard-coded number:
+ *  - §2's press-and-hold threshold, which drives both §1's hold-based opening methods and
+ *    §4's hold-then-swipe mode selection ([isVersionLongPress]);
+ *  - the triple tap that opens the hidden developer page ([isTripleClick]), unchanged.
  *
- * [isVersionLongPress] is a top-level Android-free function in the same convention as
- * [isTripleClick], so both gestures are testable on the local JVM.
+ * The gesture *decision* built on top of these primitives — which opening method wins, and
+ * when a swipe outranks it — lives in [resolveFooterRelease] and is covered by
+ * [ScanModeInteractionUnitTest].
  */
 class VersionFooterGestureUnitTest {
 
-    // ── The two-second hold ───────────────────────────────────────────────────
+    // ── §2 The configurable hold ─────────────────────────────────────────────
 
-    /** The requirement is two seconds, and it is inclusive at exactly 2000 ms. */
+    /** The spec's three options, and 1 second as the default. */
     @Test
-    fun holdOpensSettings_atExactlyTheRequiredDuration() {
-        assertEquals(2_000L, VERSION_LONG_PRESS_MS)
-        assertTrue(isVersionLongPress(VERSION_LONG_PRESS_MS, movedPastSlop = false))
+    fun holdDurationOffersExactlyTheSpecifiedOptions() {
+        assertEquals(
+            listOf(500L, 1_000L, 2_000L),
+            HoldDuration.values().map { it.milliseconds }
+        )
+        assertEquals(HoldDuration.ONE_SECOND, DEFAULT_HOLD_DURATION)
+        assertEquals(1_000L, DEFAULT_VERSION_HOLD_MS)
     }
 
+    /** Each option is inclusive at exactly its own threshold, and nothing shorter. */
     @Test
-    fun holdLongerThanRequired_stillOpensSettings() {
-        assertTrue(isVersionLongPress(2_001L, false))
-        assertTrue(isVersionLongPress(5_000L, false))
-        assertTrue(isVersionLongPress(60_000L, false))
+    fun everyHoldOptionFiresAtItsOwnThresholdAndNotBefore() {
+        HoldDuration.values().forEach { duration ->
+            val required = duration.milliseconds
+            assertTrue(
+                "$duration at exactly $required ms",
+                isVersionLongPress(required, false, required)
+            )
+            assertTrue(
+                "$duration beyond $required ms",
+                isVersionLongPress(required + 1, false, required)
+            )
+            assertTrue(
+                "$duration far beyond $required ms",
+                isVersionLongPress(60_000L, false, required)
+            )
+            assertFalse("$duration at zero", isVersionLongPress(0L, false, required))
+            assertFalse(
+                "$duration one ms short",
+                isVersionLongPress(required - 1, false, required)
+            )
+        }
     }
 
-    /** Anything short of the full hold must not navigate — that is the whole point. */
+    /**
+     * The acceptance criterion "Releasing before the configured duration does not trigger the
+     * action", checked against the default and both other options.
+     */
     @Test
-    fun holdShorterThanRequired_doesNotOpenSettings() {
-        assertFalse(isVersionLongPress(0L, false))
-        assertFalse(isVersionLongPress(1L, false))
-        assertFalse(isVersionLongPress(499L, false))
-        assertFalse(isVersionLongPress(1_999L, false))
-    }
-
-    /** A single tap is now inert: it must neither open Settings nor the hidden page. */
-    @Test
-    fun singleTap_navigatesNowhere() {
-        assertFalse("a tap is far short of the hold", isVersionLongPress(80L, false))
-        assertFalse("and one tap is far short of a triple", isTripleClick(1, 0L))
+    fun releasingEarlyNeverTriggersTheAction() {
+        assertFalse(isVersionLongPress(80L, false, HoldDuration.HALF_SECOND.milliseconds))
+        assertFalse(isVersionLongPress(499L, false, HoldDuration.HALF_SECOND.milliseconds))
+        assertFalse(isVersionLongPress(999L, false, HoldDuration.ONE_SECOND.milliseconds))
+        assertFalse(isVersionLongPress(1_999L, false, HoldDuration.TWO_SECONDS.milliseconds))
     }
 
     /** Movement voids the hold however long the finger stays down. */
     @Test
     fun movementPastTheSlop_voidsTheHold() {
-        assertFalse(isVersionLongPress(VERSION_LONG_PRESS_MS, movedPastSlop = true))
-        assertFalse(isVersionLongPress(10_000L, movedPastSlop = true))
-        assertFalse(isVersionLongPress(Long.MAX_VALUE, movedPastSlop = true))
+        HoldDuration.values().forEach { duration ->
+            assertFalse(isVersionLongPress(duration.milliseconds, true, duration.milliseconds))
+            assertFalse(isVersionLongPress(Long.MAX_VALUE, true, duration.milliseconds))
+        }
     }
 
-    /** Movement alone is not enough to fail — the duration still has to be checked. */
+    /** The default parameter is the default setting, so a bare call matches the spec. */
     @Test
-    fun stationaryButShort_stillFails() {
-        assertFalse(isVersionLongPress(1_999L, movedPastSlop = false))
+    fun theDefaultParameterIsTheDefaultSetting() {
+        assertEquals(DEFAULT_HOLD_DURATION.milliseconds, DEFAULT_VERSION_HOLD_MS)
+        assertTrue(isVersionLongPress(DEFAULT_HOLD_DURATION.milliseconds, movedPastSlop = false))
+        assertFalse(isVersionLongPress(DEFAULT_HOLD_DURATION.milliseconds - 1, movedPastSlop = false))
     }
 
     /** The required duration is a parameter, so the rule is reusable and testable. */
@@ -72,39 +95,37 @@ class VersionFooterGestureUnitTest {
         assertTrue(isVersionLongPress(0L, false, requiredMs = 0L))
     }
 
-    // ── The hold must not fight the platform long-press ───────────────────────
+    // ── The hold must not fire on an ordinary tap ────────────────────────────
 
     /**
-     * ViewConfiguration.getLongPressTimeout() is ~500 ms. The footer hold has to be
-     * comfortably longer, or the platform's own long-press semantics would feel like they
-     * fire early and the "two seconds" requirement would not be observable.
+     * ViewConfiguration.getLongPressTimeout() is ~500 ms and a real tap is far shorter than
+     * either. Even the shortest §2 option therefore cannot be triggered by an accidental touch.
      */
     @Test
-    fun holdIsLongerThanThePlatformLongPressTimeout() {
-        assertTrue(
-            "VERSION_LONG_PRESS_MS must exceed the ~500 ms platform timeout",
-            VERSION_LONG_PRESS_MS > 500L
-        )
+    fun shortestHoldOptionIsStillLongerThanAnOrdinaryTap() {
+        val ordinaryTapMs = 120L
+        val shortest = HoldDuration.values().minOf { it.milliseconds }
+        assertTrue("shortest hold=$shortest ms tap=$ordinaryTapMs ms", ordinaryTapMs < shortest)
+        assertFalse(isVersionLongPress(ordinaryTapMs, false, shortest))
     }
 
     // ── The hold must not swallow the triple tap ──────────────────────────────
 
     /**
-     * The two gestures share one view, so their windows must not overlap: three taps have
-     * to fit inside [TRIPLE_CLICK_WINDOW_MS], and the hold must not fire before that
-     * burst can complete — otherwise the third tap would land on Page 2 instead of the
-     * footer.
+     * The two gestures share one view. Three taps have to fit inside [TRIPLE_CLICK_WINDOW_MS],
+     * and none of them may be long enough to be mistaken for a hold at *any* §2 setting —
+     * otherwise tap 2 or 3 would open Page 2 instead of reaching the footer.
      */
     @Test
-    fun holdOutlastsTheTripleTapBurst_soTheTwoGesturesCannotCollide() {
-        assertTrue(
-            "hold=${VERSION_LONG_PRESS_MS}ms burst=${TRIPLE_CLICK_WINDOW_MS}ms",
-            VERSION_LONG_PRESS_MS > TRIPLE_CLICK_WINDOW_MS
-        )
-        // Each of the three taps is short, so none of them can be mistaken for a hold.
-        val perTap = TRIPLE_CLICK_WINDOW_MS / TRIPLE_CLICK_COUNT
-        assertFalse(isVersionLongPress(perTap, false))
+    fun tripleTapBurstStillFits_andNoTapInsideItLooksLikeAHold() {
         assertTrue(isTripleClick(TRIPLE_CLICK_COUNT, TRIPLE_CLICK_WINDOW_MS))
+        val perTap = TRIPLE_CLICK_WINDOW_MS / TRIPLE_CLICK_COUNT
+        HoldDuration.values().forEach { duration ->
+            assertFalse(
+                "$perTap ms per tap must not read as a $duration hold",
+                isVersionLongPress(perTap, false, duration.milliseconds)
+            )
+        }
     }
 
     // ── Regression: the hidden-page gesture is unchanged ──────────────────────
@@ -123,8 +144,9 @@ class VersionFooterGestureUnitTest {
     }
 
     /**
-     * The burst window no longer has to be wide enough to accommodate a *deferred*
-     * single-tap navigation, but it does still have to fit three deliberate human taps.
+     * The burst window now does double duty: it is also how long §1's single-click navigation
+     * is deferred, so that taps 2 and 3 still land on the footer. It has to stay wide enough
+     * for three human taps and short enough that a single click does not feel broken.
      */
     @Test
     fun burstWindowStillFitsThreeHumanTaps() {

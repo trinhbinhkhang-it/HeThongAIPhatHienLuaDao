@@ -1,5 +1,7 @@
 package com.voiceshield.ai
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.app.NotificationChannel
@@ -35,6 +37,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.annotation.DimenRes
 import androidx.annotation.DrawableRes
 import androidx.core.app.NotificationCompat
@@ -298,6 +301,19 @@ class FloatingBubbleService : Service() {
     /** True once [armScanTimer] has scheduled the popup for the current scan. */
     private var scanTimerArmed = false
 
+    /**
+     * developer_setting_page.md §6 — the mode this detection session runs with.
+     *
+     * Copied from [ProtectionState.getMode] exactly once, when a double tap starts the scan,
+     * and then *locked*: "The session mode remains unchanged until the bubble becomes
+     * inactive." Every consumer of the mode inside a live session — the popup timer, the
+     * popup itself, the warning notification and the model-result sequence — reads this
+     * rather than the preference, so a mode selected mid-scan can only ever affect the *next*
+     * session. Cleared by [stopScan] and by [onDestroy]; mirrored into the companion so
+     * [SettingsActivity] can display it.
+     */
+    private var sessionMode: ScanMode? = null
+
     /** Guards the blink recursion so stopBlink() can't be raced by an end-action. */
     private var isBlinking = false
     private var blinkingIcon: ImageView? = null
@@ -307,6 +323,12 @@ class FloatingBubbleService : Service() {
     private var initialY = 0
     private var initialTouchX = 0f
     private var initialTouchY = 0f
+
+    /**
+     * The edge-snap spring currently running, if any. Held so it can be cancelled when the
+     * bubble is grabbed again or a newer snap supersedes it — see [cancelSnapAnimation].
+     */
+    private var snapAnimator: ValueAnimator? = null
 
     // ── Drag-to-dismiss (X bubble) ──────────────────────────────────────────
     /**
@@ -373,10 +395,14 @@ class FloatingBubbleService : Service() {
     }
 
     /**
-     * Fires once per scan and shows the popup for the mode selected on Page 2.
+     * Fires once per scan and shows the popup for the mode *this session* was started with.
      * Deliberately a named Runnable: stopScan() cancels just this callback,
      * whereas removeCallbacksAndMessages(null) would also drop pending model
      * updates and break the Phase-4 result sequence.
+     *
+     * developer_setting_page.md §6: the popup and the notification both come from
+     * [sessionMode], never from the live preference, so a mode chosen mid-scan cannot change
+     * what this session reports.
      */
     private val scanRunnable = Runnable {
         if (!scanning) return@Runnable
@@ -384,7 +410,7 @@ class FloatingBubbleService : Service() {
         // face must never produce a result, even if something armed the timer early.
         if (awaitingFace || !scanTimerArmed) return@Runnable
         scanTimerArmed = false
-        when (ProtectionState.getMode(this)) {
+        when (activeSessionMode()) {
             ScanMode.SAFE -> showSafePopup()
             ScanMode.WARNING -> {
                 showWarningPopup()
@@ -393,19 +419,12 @@ class FloatingBubbleService : Service() {
         }
     }
 
-    /**
-     * Page 2 can change the mode mid-scan: re-roll the pending window.
-     *
-     * A face-gated scan that is still waiting has no window to re-roll, and arming one
-     * here would silently defeat the "Chế độ nhận diện khuôn mặt" gate — so the re-roll
-     * is skipped until releaseFaceGateIfSatisfied() has run.
-     */
-    private val modeChangedReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != ProtectionState.ACTION_MODE_CHANGED) return
-            if (scanning && !awaitingFace) armScanTimer()
-        }
-    }
+    // NOTE: there is deliberately no ACTION_MODE_CHANGED receiver here any more. It used to
+    // re-roll the pending popup window when Page 2 changed the mode mid-scan, which
+    // developer_setting_page.md §6 forbids: "A new mode applies only to the next detection
+    // session." A mode edit is now invisible to a running session by construction — the
+    // session keeps the mode it copied at startScan(). ACTION_INTERVALS_CHANGED is a
+    // different thing (the roll *window*, not the mode) and still re-rolls.
 
     /** Same, for a roll window edited on the hidden developer page. */
     private val intervalsChangedReceiver = object : BroadcastReceiver() {
@@ -528,14 +547,9 @@ class FloatingBubbleService : Service() {
             IntentFilter(ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
-        ContextCompat.registerReceiver(
-            this,
-            modeChangedReceiver,
-            IntentFilter(ProtectionState.ACTION_MODE_CHANGED),
-            ContextCompat.RECEIVER_NOT_EXPORTED
-        )
         // The hidden developer page can change the roll windows while a scan is
-        // pending; re-arm so the edit takes effect immediately.
+        // pending; re-arm so the edit takes effect immediately. The *mode* is
+        // deliberately not listened for — see the note by scanRunnable.
         ContextCompat.registerReceiver(
             this,
             intervalsChangedReceiver,
@@ -582,6 +596,11 @@ class FloatingBubbleService : Service() {
         bubbleAttached = false
         bubbleHiddenByLock = false
         windowAttachSettled = false
+        // The session dies with the service: nothing may keep claiming a locked mode, and no
+        // pop-up window can still be up once this returns.
+        sessionMode = null
+        publishSessionMode()
+        popupAttached = false
         liveInstanceRef = null
         // Announced *before* the teardown work rather than after it. This is the signal
         // that makes the Home card stop claiming "Đang bảo vệ" the instant the bubble
@@ -598,12 +617,12 @@ class FloatingBubbleService : Service() {
             handler.removeCallbacks(lockWatchdog)
             stopBlink()
             handler.removeCallbacksAndMessages(null)
+            cancelSnapAnimation()
             stopFloating()
             stopRipple()
         }
         runCatching { ProtectionState.setActive(this, false) }
         runCatching { unregisterReceiver(faceDetectionReceiver) }
-        runCatching { unregisterReceiver(modeChangedReceiver) }
         runCatching { unregisterReceiver(intervalsChangedReceiver) }
         runCatching { unregisterReceiver(faceGateChangedReceiver) }
         runCatching { unregisterReceiver(screenStateReceiver) }
@@ -670,6 +689,10 @@ class FloatingBubbleService : Service() {
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     isDragging = false
+                    // Grabbing the bubble mid-spring takes over from the animation: let it go,
+                    // or it keeps writing x against the drag and (with §5 enabled) would end by
+                    // selecting the mode of an edge the bubble was pulled away from.
+                    cancelSnapAnimation()
                     initialX = bubbleLayoutParams.x
                     initialY = bubbleLayoutParams.y
                     initialTouchX = event.rawX
@@ -942,24 +965,115 @@ class FloatingBubbleService : Service() {
      * Springs the bubble to whichever screen edge is nearer, keeping the dragged
      * vertical offset (enable_floating_bubble.md postconditions: "the bubble
      * snaps to the nearest screen edge" / "preserves its vertical position").
+     *
+     * developer_setting_page.md §5 hangs off the *end* of that spring, never off the
+     * release: with "Đổi chế độ dựa trên vị trí bubble" selected, the edge the bubble
+     * finally comes to rest on picks the scan mode, and "The mode changes only after the
+     * snap is complete." A cancelled animation (a new gesture took over) applies nothing,
+     * because the bubble never reached an edge.
      */
     private fun snapToNearestEdge() {
-        val target = nearestEdgeX(
-            bubbleLayoutParams.x,
-            dimen(R.dimen.bubble_container_size),
-            resources.displayMetrics.widthPixels,
-            dimen(R.dimen.bubble_edge_margin)
-        )
-        if (bubbleLayoutParams.x == target) return
-        ValueAnimator.ofInt(bubbleLayoutParams.x, target).apply {
+        val containerWidth = dimen(R.dimen.bubble_container_size)
+        val screenWidth = resources.displayMetrics.widthPixels
+        val edgeMargin = dimen(R.dimen.bubble_edge_margin)
+        val target = nearestEdgeX(bubbleLayoutParams.x, containerWidth, screenWidth, edgeMargin)
+        // A new snap supersedes any still running one; cancelling it also stops it from
+        // reporting an edge the bubble never came to rest on.
+        cancelSnapAnimation()
+        if (bubbleLayoutParams.x == target) {
+            // Already resting on an edge: the snap is trivially complete, so §5 applies now.
+            applyPositionBasedMode(bubbleEdgeOf(target, edgeMargin))
+            return
+        }
+        var cancelled = false
+        snapAnimator = ValueAnimator.ofInt(bubbleLayoutParams.x, target).apply {
             duration = SNAP_DURATION_MS
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
                 bubbleLayoutParams.x = it.animatedValue as Int
                 runCatching { windowManager.updateViewLayout(bubbleContainer, bubbleLayoutParams) }
             }
-        }.start()
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationCancel(animation: Animator) {
+                    cancelled = true
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    snapAnimator = null
+                    if (cancelled) return
+                    // Read the edge back off the *actual* resting x rather than the target,
+                    // so a layout that clamped differently cannot report the wrong edge.
+                    applyPositionBasedMode(bubbleEdgeOf(bubbleLayoutParams.x, edgeMargin))
+                }
+            })
+        }.also { it.start() }
     }
+
+    /**
+     * Stops a snap that is still springing, if any.
+     *
+     * Called when a new snap supersedes it and when the bubble is grabbed again mid-spring:
+     * without it the 200 ms animation keeps writing [bubbleLayoutParams] against the drag, and
+     * — once §5 is enabled — would finish by selecting the mode of an edge the bubble was
+     * dragged away from before it ever arrived.
+     */
+    private fun cancelSnapAnimation() {
+        snapAnimator?.let { runCatching { it.cancel() } }
+        snapAnimator = null
+    }
+
+    /**
+     * developer_setting_page.md §5 — "Đổi chế độ dựa trên vị trí bubble".
+     *
+     * Runs once the snap has finished, and only when every gate the spec puts on it is open:
+     * the method is the selected automatic one, no In-App Pop-up is up (§8), and the bubble
+     * is inactive (§5's last bullet, which is [canSelectModeNow]).
+     *
+     * Re-snapping onto the edge the bubble already sits on requests the mode that is already
+     * selected, so [isModeChange] is false and nothing is written or announced — that is what
+     * makes "Moving the bubble vertically along the same edge does not change the mode" hold,
+     * and what stops a drag up and down one edge from firing a toast per release.
+     */
+    private fun applyPositionBasedMode(edge: BubbleEdge) {
+        val current = ProtectionState.getMode(this)
+        // The whole §5 gate is one pure function, so the rule the unit tests pin is exactly
+        // the rule that runs here.
+        if (!shouldApplyEdgeMode(
+                autoSelection = ProtectionState.getAutoModeSelection(this),
+                popupVisible = panel != null,
+                bubbleActive = scanning,
+                currentMode = current,
+                edge = edge
+            )
+        ) {
+            return
+        }
+        val requested = modeForEdge(edge)
+        val feedback = feedbackForModeChange(current, requested, ProtectionState.getModeFeedback(this))
+        ProtectionState.setMode(this, requested)
+        announceModeChange(requested, feedback)
+    }
+
+    /**
+     * §7 mode-change feedback, from the service side.
+     *
+     * A toast and an optional vibration pulse only — deliberately *not* a notification: the
+     * spec is explicit that "No system notification is created for a mode change", and the
+     * warning channel must stay reserved for actual deepfake alerts.
+     */
+    private fun announceModeChange(mode: ScanMode, feedback: ModeFeedback) {
+        if (!feedbackUsesToast(feedback)) return
+        Toast.makeText(
+            this,
+            getString(R.string.mode_changed_feedback, mode.label()),
+            Toast.LENGTH_SHORT
+        ).show()
+        if (feedbackUsesVibration(feedback)) vibrateGently()
+    }
+
+    /** Human-readable name of a scan mode, for the §7 feedback toast. */
+    private fun ScanMode.label(): String =
+        getString(if (this == ScanMode.SAFE) R.string.mode_safe else R.string.mode_warning)
 
     // ── Drag-to-dismiss: the X bubble ────────────────────────────────────────
 
@@ -1195,6 +1309,11 @@ class FloatingBubbleService : Service() {
     private fun startScan() {
         scanning = true
         rippleDuration = RIPPLE_DURATION_MS
+        // §6: "When the bubble becomes active, the current scan mode is copied into the
+        // current detection session." One copy, here, and nothing re-reads the preference
+        // again until stopScan() clears it — that is the whole lock.
+        sessionMode = ProtectionState.getMode(this)
+        publishSessionMode()
         // Read the gate *before* render(): render() picks the content description from
         // awaitingFace, so the bubble has to know it is waiting before it repaints.
         val faceGateOn = ProtectionState.isFaceGateEnabled(this)
@@ -1225,6 +1344,10 @@ class FloatingBubbleService : Service() {
         // behind, or the next double-tap would start out mislabelled.
         awaitingFace = false
         scanTimerArmed = false
+        // §6: the bubble is inactive again, so the session's mode lock is released and the
+        // next double tap copies whatever is selected at that point.
+        sessionMode = null
+        publishSessionMode()
         handler.removeCallbacks(scanRunnable)
         cancelResultSequence()
         removePanel()
@@ -1233,7 +1356,7 @@ class FloatingBubbleService : Service() {
     }
 
     /**
-     * (Re)rolls the popup delay for the mode currently selected on Page 2, using the
+     * (Re)rolls the popup delay for the mode *this session* was started with, using the
      * roll windows from the hidden developer page (spec defaults when untouched).
      *
      * Only ever called once the face gate has been satisfied — see [shouldArmScanTimer].
@@ -1243,8 +1366,32 @@ class FloatingBubbleService : Service() {
         scanTimerArmed = true
         handler.postDelayed(
             scanRunnable,
-            ProtectionState.scanDelayMsFor(this, ProtectionState.getMode(this))
+            ProtectionState.scanDelayMsFor(this, activeSessionMode())
         )
+    }
+
+    /**
+     * The mode a live session must be judged against (§6).
+     *
+     * [sessionMode] is authoritative while a scan runs; the preference is only consulted
+     * outside one, where [armScanTimer] and [scanRunnable] are unreachable anyway. Falling
+     * back rather than throwing keeps a torn-down or oddly-ordered service from crashing on
+     * the timer it is about to cancel.
+     */
+    private fun activeSessionMode(): ScanMode = sessionMode ?: ProtectionState.getMode(this)
+
+    /**
+     * Mirrors the session state into the companion so Page 2 can display and lock against it.
+     *
+     * Derived from *both* flags rather than from `scanning` alone. That matters for teardown:
+     * onDestroy() clears [sessionMode] before it stops anything, and `stopProtection()` reaches
+     * onDestroy() without ever calling stopScan() — so a service dying mid-scan would otherwise
+     * leave [FloatingBubbleService.isScanSessionActive] true and Page 2 permanently locked
+     * against a session that no longer exists.
+     */
+    private fun publishSessionMode() {
+        sessionActiveRef = scanning && sessionMode != null
+        sessionModeRef = sessionMode
     }
 
     /**
@@ -1377,6 +1524,10 @@ class FloatingBubbleService : Service() {
     /** Adds a flat overlay card centred on screen and records it as the live panel. */
     private fun showOverlay(card: View) {
         panel = card
+        // §8 mirror: Page 1 has to be able to ask whether a pop-up is up without reaching
+        // into this service's fields, because its own mode-selection gestures are blocked
+        // for exactly as long as one is visible.
+        popupAttached = true
         windowManager.addView(
             card,
             overlayParams(
@@ -1547,7 +1698,9 @@ class FloatingBubbleService : Service() {
         if (!monitoringStarted || !scanning || resultSequenceStarted) return
 
         resultSequenceStarted = true
-        if (ProtectionState.getMode(this) == ScanMode.WARNING) {
+        // §6: the model-result branch — and the high-risk notification it raises — belongs to
+        // the session's locked mode, not to whatever Page 2 happens to say right now.
+        if (activeSessionMode() == ScanMode.WARNING) {
             postResult(900) { update(DetectionResult(58, RiskLevel.SUSPICIOUS)) }
             postResult(4_500) {
                 update(DetectionResult(84, RiskLevel.HIGH_RISK))
@@ -1626,6 +1779,7 @@ class FloatingBubbleService : Service() {
         stopBlink()
         panel?.let { runCatching { windowManager.removeView(it) } }
         panel = null
+        popupAttached = false
     }
 
     private fun showHighRiskNotification() {
@@ -1726,6 +1880,32 @@ class FloatingBubbleService : Service() {
         private var bubbleAttached = false
 
         /**
+         * developer_setting_page.md §6 — the mode the *running* detection session was started
+         * with, mirrored out of the instance so Page 2 can display it.
+         *
+         * Null whenever no session is live. Written only by publishSessionMode(), which is
+         * called from startScan(), stopScan() and onDestroy() — all on the main thread, but
+         * volatile because Page 2 reads it from its own.
+         */
+        @Volatile
+        private var sessionModeRef: ScanMode? = null
+
+        /**
+         * Mirror of the instance's `scanning` flag: true while a detection session is running,
+         * which is what §6 means by "the bubble is active".
+         */
+        @Volatile
+        private var sessionActiveRef = false
+
+        /**
+         * Mirror of `panel != null` (§8): true while an In-App Pop-up overlay window is up.
+         * Page 1 consults this before honouring any mode-selection gesture, because
+         * disable_floating_bubble.md already forbids interacting with the bubble in that state.
+         */
+        @Volatile
+        private var popupAttached = false
+
+        /**
          * Mirror of the instance's Component-6 lock gate, held here so
          * [isBubbleVisible] can be read cross-thread. An attached-but-GONE window
          * has not been "successfully rendered", so it must not count as visible.
@@ -1762,6 +1942,21 @@ class FloatingBubbleService : Service() {
 
         /** Read-only liveness view of the bubble for the Home screen. */
         val isBubbleVisible: Boolean get() = isBubbleOnScreen(bubbleAttached, bubbleHiddenByLock)
+
+        /**
+         * §6 — true while a detection session is running, i.e. while the bubble is "active".
+         * Both mode-selection gestures are refused for exactly this long, and Page 2 locks.
+         */
+        val isScanSessionActive: Boolean get() = sessionActiveRef
+
+        /**
+         * §6 — the mode the running session copied at start-up, or null when no session is
+         * live. Page 2 shows this instead of the selected mode while [isScanSessionActive].
+         */
+        val activeSessionMode: ScanMode? get() = sessionModeRef
+
+        /** §8 — true while an In-App Pop-up overlay is on screen. */
+        val isPopupOnScreen: Boolean get() = popupAttached
 
         /**
          * True while the window is attached but deliberately not drawn because the

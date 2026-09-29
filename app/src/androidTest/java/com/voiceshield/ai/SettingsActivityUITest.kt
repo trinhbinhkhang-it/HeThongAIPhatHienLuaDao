@@ -7,12 +7,16 @@ import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isChecked
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.isEnabled
 import androidx.test.espresso.matcher.ViewMatchers.isNotChecked
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.hamcrest.CoreMatchers.not
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -90,6 +94,35 @@ class SettingsActivityUITest {
             onView(withId(R.id.btn_back_home)).perform(click())
             awaitState(scenario, Lifecycle.State.DESTROYED)
         }
+    }
+
+    /**
+     * developer_setting_page.md §6: the page is locked *only* while a detection session runs.
+     * No bubble service exists in these tests, so this pins the unlocked half — the controls
+     * are editable, the notice is hidden, and the mode shown is the selected one rather than a
+     * session's. The locked half needs a live scan and is covered by the manual verification
+     * steps plus `ScanModeInteractionUnitTest`.
+     */
+    @Test
+    fun pageIsUnlockedWhenNoSessionIsRunning() {
+        assertFalse(FloatingBubbleService.isScanSessionActive)
+        assertNull(FloatingBubbleService.activeSessionMode)
+        val selected = ProtectionState.getMode(context)
+        ActivityScenario.launch(SettingsActivity::class.java).use {
+            onView(withId(R.id.mode_group)).check(matches(isEnabled()))
+            onView(withId(R.id.btn_save_config)).check(matches(isEnabled()))
+            onView(withId(R.id.mode_locked_notice)).check(matches(not(isDisplayed())))
+            val expectedId = if (selected == ScanMode.SAFE) R.id.mode_safe else R.id.mode_warning
+            onView(withId(expectedId)).check(matches(isChecked()))
+        }
+        assertEquals(
+            selected,
+            displayedScanMode(
+                FloatingBubbleService.isScanSessionActive,
+                FloatingBubbleService.activeSessionMode,
+                selected
+            )
+        )
     }
 
     /** Polls briefly: finish() destroys the activity on a later main-loop pass. */

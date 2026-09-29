@@ -15,6 +15,9 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.util.Log
 import android.view.HapticFeedbackConstants
@@ -49,8 +52,9 @@ fun isScreenCaptureGranted(resultCode: Int, hasData: Boolean): Boolean =
  * A single status card holds the shield well, title, description, state badge
  * and the primary pill CTA that both activates and deactivates protection.
  * The underlined version footer is the entry point to Page 2 (Settings), where
- * the scan mode (Safe / Warning) is configured — reached by pressing and holding
- * it for [VERSION_LONG_PRESS_MS].
+ * the scan mode (Safe / Warning) is configured — reached by the gesture the hidden
+ * developer page selects (developer_setting_page.md §1), and also the surface §4's
+ * hold-then-swipe mode selection runs on.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -70,17 +74,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusBadgeIcon: ImageView
     private lateinit var footerVersion: TextView
 
-    // ── Version footer: 2 s hold -> Page 2, triple tap -> hidden dev page ─────
+    // ── Version footer: developer_setting_page.md §1–§4 ───────────────────────
     /**
-     * The footer has two deliberate gestures and no accidental one.
+     * The footer carries every gesture this spec defines, plus the one that predates it.
      *
-     * A press-and-hold of [VERSION_LONG_PRESS_MS] opens Page 2 (Settings); a plain tap
-     * now does nothing at all, which is the point — the hold keeps the scan-mode page off
-     * the accidental path. A triple tap still opens the hidden developer page.
+     *  - §1 decides how the "Chế độ quét" page is opened: a single click (the default), a
+     *    press-and-hold, or a press-and-hold finished with a swipe up.
+     *  - §2 decides how long that hold has to last: 0.5 s, 1 s (the default) or 2 s.
+     *  - §4, when "Đổi chế độ bằng việc vuốt sang trái hoặc phải" is selected, reuses the same
+     *    hold and then reads a left/right swipe as a scan-mode selection.
+     *  - A triple tap still opens the hidden developer page, unchanged.
      *
-     * Because a tap no longer navigates, the old trick of *deferring* the single-tap
-     * navigation until the triple-tap window closed is gone with it: taps 2 and 3 now land
-     * on a footer that is still on screen, so nothing has to be postponed.
+     * Because the single click and the triple tap share one view, a lone tap *defers* its
+     * navigation to the end of [TRIPLE_CLICK_WINDOW_MS]: navigating at once would put Page 2
+     * underneath taps 2 and 3 and make the hidden page unreachable. That deferral is the price
+     * of keeping both gestures, and it applies only to the §1 single-click method — the two
+     * hold-based methods are unambiguous and navigate the moment the hold resolves.
      */
     private val uiHandler = Handler(Looper.getMainLooper())
     private var versionTapCount = 0
@@ -88,19 +97,42 @@ class MainActivity : AppCompatActivity() {
     private var versionDownRawX = 0f
     private var versionDownRawY = 0f
     private var versionDownAt = 0L
-    /** True once the finger travelled past the touch slop, which voids the hold. */
+    /** True once the finger travelled past the touch slop *before* the hold completed. */
     private var versionHoldBroken = false
-    /** True once the hold completed, so ACTION_UP cannot navigate a second time. */
-    private var versionLongPressFired = false
+    /** True once the configured hold completed; §4's swipe is only honoured after this. */
+    private var versionHoldSatisfied = false
+    /** True once the hold already navigated, so ACTION_UP cannot navigate a second time. */
+    private var versionHoldFired = false
 
-    /** Fires exactly [VERSION_LONG_PRESS_MS] into an unbroken hold on the footer. */
-    private val openSettingsRunnable = Runnable {
-        versionLongPressFired = true
-        // Never navigate from a finishing or backgrounded activity: the hold can
-        // otherwise complete after the user has already left the screen.
+    // The §1–§4 settings, re-read on every ACTION_DOWN so a change made on the hidden page
+    // takes effect on the very next gesture without needing a broadcast.
+    private var versionEntry = DEFAULT_SCAN_MODE_ENTRY
+    private var versionAutoSelection = DEFAULT_AUTO_MODE_SELECTION
+    private var versionHoldMs = DEFAULT_HOLD_DURATION.milliseconds
+    private var versionSwipeMinPx = 0f
+
+    /**
+     * Fires exactly [versionHoldMs] into an unbroken hold on the footer (§2).
+     *
+     * It always confirms the hold with a haptic, but only navigates when
+     * [holdCompletesImmediately] says it may: with a footer swipe armed (§4), or a swipe-up
+     * still owed (§1), the decision has to wait for the finger to lift — otherwise the page
+     * would open before the swipe that was meant to override it ever happened.
+     */
+    private val holdThresholdRunnable = Runnable {
+        versionHoldSatisfied = true
         if (isFinishing || isDestroyed) return@Runnable
         footerVersion.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        startActivity(Intent(this, SettingsActivity::class.java))
+        if (holdCompletesImmediately(versionEntry, versionAutoSelection)) {
+            versionHoldFired = true
+            openScanModePage()
+        }
+    }
+
+    /** The deferred §1 single-click navigation; see the note above about the triple tap. */
+    private val openScanModeRunnable = Runnable {
+        if (isFinishing || isDestroyed) return@Runnable
+        openScanModePage()
     }
 
     /**
@@ -177,20 +209,40 @@ class MainActivity : AppCompatActivity() {
         protectionButton.setOnClickListener {
             if (isProtecting) stopProtection() else startProtection()
         }
-        // A plain tap only counts towards the hidden-page triple tap; Page 2 (Settings)
-        // needs a two-second hold, handled by the touch listener below.
+        // The click listener counts taps for the hidden page and owns the §1 single-click
+        // navigation; the touch listener below owns every hold and swipe.
         footerVersion.setOnClickListener { registerVersionTap() }
         footerVersion.setOnTouchListener { view, event -> onVersionFooterTouch(view, event) }
-        footerVersion.contentDescription = getString(R.string.version_footer_desc)
+        refreshFooterDescription()
 
         syncProtectionState()
     }
 
     /**
+     * Keeps the footer's accessibility text in step with the §1 opening method, so a
+     * screen-reader user is told the gesture that actually works rather than a fixed one.
+     */
+    private fun refreshFooterDescription() {
+        val entry = ProtectionState.getScanModeEntry(this)
+        footerVersion.contentDescription = getString(
+            when (entry) {
+                ScanModeEntry.SINGLE_CLICK -> R.string.version_footer_desc_single_click
+                ScanModeEntry.PRESS_AND_HOLD -> R.string.version_footer_desc_press_hold
+                ScanModeEntry.PRESS_HOLD_SWIPE_UP ->
+                    R.string.version_footer_desc_press_hold_swipe_up
+            }
+        )
+    }
+
+    /**
      * Counts taps on the version footer. Three inside [TRIPLE_CLICK_WINDOW_MS] open the
-     * hidden developer page. A tap no longer navigates anywhere on its own — Page 2 is
-     * reached by the two-second hold — so there is nothing left to defer and no way for
-     * the footer to be covered between taps.
+     * hidden developer page.
+     *
+     * When §1 is set to single click — the default — a lone tap *also* opens Page 2, but not
+     * until the burst window has closed. That deferral is what lets both gestures share one
+     * view: navigating on the first tap would put Page 2 under taps 2 and 3 and make the
+     * hidden page unreachable. Re-posting on every tap keeps the deadline anchored to the
+     * *first* tap, so the burst can never be extended indefinitely.
      */
     private fun registerVersionTap() {
         val now = SystemClock.uptimeMillis()
@@ -203,40 +255,61 @@ class MainActivity : AppCompatActivity() {
 
         if (isTripleClick(versionTapCount, now - versionFirstTapAt)) {
             versionTapCount = 0
-            uiHandler.removeCallbacks(openSettingsRunnable)
+            // The third tap wins: drop any single-click navigation still pending.
+            uiHandler.removeCallbacks(openScanModeRunnable)
             startActivity(Intent(this, HiddenSettingsActivity::class.java))
+            return
+        }
+
+        if (ProtectionState.getScanModeEntry(this) == ScanModeEntry.SINGLE_CLICK) {
+            uiHandler.removeCallbacks(openScanModeRunnable)
+            val remaining = (versionFirstTapAt + TRIPLE_CLICK_WINDOW_MS - now).coerceAtLeast(0L)
+            uiHandler.postDelayed(openScanModeRunnable, remaining)
         }
     }
 
     /**
-     * The press-and-hold that opens Page 2 (Settings).
+     * The hold-and-swipe half of the footer (§1 options B/C, §2 and §4).
      *
-     * The hold is armed on ACTION_DOWN for exactly [VERSION_LONG_PRESS_MS]. Travelling
-     * past the touch slop voids it, so a scroll or a shaky finger cannot open Settings;
-     * [isVersionLongPress] is the single source of truth for whether the hold counted and
-     * is what the unit tests pin. ACTION_UP either completes the hold (when the posted
-     * callback was somehow still pending) or hands the gesture to the click listener,
-     * which only counts triple taps.
+     * ACTION_DOWN snapshots the configured settings and arms the hold for exactly
+     * [HoldDuration.milliseconds]. Travelling past the touch slop *before* that threshold
+     * voids the hold, so a scroll or a shaky finger cannot open the page or change the mode;
+     * travelling *after* it is the swipe §4 asks for, and is measured rather than rejected.
+     *
+     * ACTION_UP hands everything to [resolveFooterRelease], the one pure function the unit
+     * tests pin, and then performs whichever [FooterAction] it returned.
      */
     @SuppressLint("ClickableViewAccessibility")
     private fun onVersionFooterTouch(view: View, event: MotionEvent): Boolean =
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // Re-read per gesture: the hidden page can change any of these while this
+                // screen was stopped, and the next touch must honour the new selection.
+                versionEntry = ProtectionState.getScanModeEntry(this)
+                versionAutoSelection = ProtectionState.getAutoModeSelection(this)
+                versionHoldMs = ProtectionState.holdDurationMs(this)
+                versionSwipeMinPx = swipeMinDistancePx(
+                    MODE_SWIPE_MIN_DISTANCE_DP,
+                    resources.displayMetrics.density
+                )
                 versionDownRawX = event.rawX
                 versionDownRawY = event.rawY
                 versionDownAt = SystemClock.uptimeMillis()
                 versionHoldBroken = false
-                versionLongPressFired = false
+                versionHoldSatisfied = false
+                versionHoldFired = false
                 view.isPressed = true
-                uiHandler.removeCallbacks(openSettingsRunnable)
-                uiHandler.postDelayed(openSettingsRunnable, VERSION_LONG_PRESS_MS)
+                uiHandler.removeCallbacks(holdThresholdRunnable)
+                uiHandler.postDelayed(holdThresholdRunnable, versionHoldMs)
                 true
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (!versionHoldBroken && movedPastTouchSlop(view, event)) {
+                // Only movement *before* the threshold voids the hold. Once the hold has
+                // completed the finger is expected to travel — that travel is the swipe.
+                if (!versionHoldSatisfied && !versionHoldBroken && movedPastTouchSlop(view, event)) {
                     versionHoldBroken = true
-                    uiHandler.removeCallbacks(openSettingsRunnable)
+                    uiHandler.removeCallbacks(holdThresholdRunnable)
                     view.isPressed = false
                 }
                 // Keep the gesture once we own it; release it if the hold was voided so
@@ -245,22 +318,16 @@ class MainActivity : AppCompatActivity() {
             }
 
             MotionEvent.ACTION_UP -> {
-                uiHandler.removeCallbacks(openSettingsRunnable)
+                uiHandler.removeCallbacks(holdThresholdRunnable)
                 view.isPressed = false
-                val heldMs = SystemClock.uptimeMillis() - versionDownAt
-                when {
-                    // The hold already completed while the finger was still down, and it
-                    // has navigated — do not navigate again and do not count a tap.
-                    versionLongPressFired -> Unit
-                    isVersionLongPress(heldMs, versionHoldBroken) -> openSettingsRunnable.run()
-                    else -> view.performClick()
-                }
+                handleFooterRelease(view, event)
                 true
             }
 
             MotionEvent.ACTION_CANCEL -> {
-                uiHandler.removeCallbacks(openSettingsRunnable)
+                uiHandler.removeCallbacks(holdThresholdRunnable)
                 versionHoldBroken = true
+                versionHoldSatisfied = false
                 view.isPressed = false
                 true
             }
@@ -273,6 +340,97 @@ class MainActivity : AppCompatActivity() {
         val slop = ViewConfiguration.get(view.context).scaledTouchSlop
         return abs(event.rawX - versionDownRawX) > slop ||
             abs(event.rawY - versionDownRawY) > slop
+    }
+
+    /**
+     * Decides what the released finger meant and carries it out.
+     *
+     * The hold counts if the threshold callback already fired *or* the release itself was long
+     * enough and unbroken — [isVersionLongPress] is the shared rule, fed the configured
+     * duration, which is what makes "Releasing before the configured duration does not trigger
+     * the action" true for all three §2 options.
+     */
+    private fun handleFooterRelease(view: View, event: MotionEvent) {
+        val heldMs = SystemClock.uptimeMillis() - versionDownAt
+        val holdSatisfied = versionHoldSatisfied ||
+            isVersionLongPress(heldMs, versionHoldBroken, versionHoldMs)
+        val swipe = swipeDirection(
+            event.rawX - versionDownRawX,
+            event.rawY - versionDownRawY,
+            versionSwipeMinPx
+        )
+        val action = resolveFooterRelease(
+            entry = versionEntry,
+            autoSelection = versionAutoSelection,
+            holdSatisfied = holdSatisfied,
+            swipe = swipe,
+            // §6's "the bubble is active" == a detection session is running.
+            bubbleActive = FloatingBubbleService.isScanSessionActive,
+            // §8: nothing is honoured while an In-App Pop-up is up.
+            popupVisible = FloatingBubbleService.isPopupOnScreen
+        )
+        when (action) {
+            FooterAction.NONE -> Unit
+            // The hold may already have navigated while the finger was down; never do it twice.
+            FooterAction.COUNT_TAP -> if (!versionHoldFired) view.performClick()
+            FooterAction.OPEN_SCAN_MODE_PAGE -> if (!versionHoldFired) openScanModePage()
+            FooterAction.SELECT_MODE_SAFE -> applySelectedMode(ScanMode.SAFE)
+            FooterAction.SELECT_MODE_WARNING -> applySelectedMode(ScanMode.WARNING)
+        }
+    }
+
+    /** Opens the "Chế độ quét" page, dropping any single-click navigation still pending. */
+    private fun openScanModePage() {
+        uiHandler.removeCallbacks(openScanModeRunnable)
+        if (isFinishing || isDestroyed) return
+        startActivity(Intent(this, SettingsActivity::class.java))
+    }
+
+    /**
+     * §4 — writes the swipe-selected mode and gives the §7 feedback.
+     *
+     * [resolveFooterRelease] has already established that the gesture was valid and the bubble
+     * inactive, so all that is left is the "did it actually change" question
+     * [feedbackForModeChange] answers: re-selecting the mode already in force stays silent.
+     */
+    private fun applySelectedMode(mode: ScanMode) {
+        val current = ProtectionState.getMode(this)
+        val feedback = feedbackForModeChange(
+            current,
+            mode,
+            ProtectionState.getModeFeedback(this)
+        )
+        if (isModeChange(current, mode)) ProtectionState.setMode(this, mode)
+        announceModeChange(mode, feedback)
+    }
+
+    /**
+     * §7 mode-change feedback. A toast naming the mode, plus a vibration pulse when that option
+     * is selected. Deliberately not a notification — the spec forbids one here, and the warning
+     * channel stays reserved for real deepfake alerts.
+     */
+    private fun announceModeChange(mode: ScanMode, feedback: ModeFeedback) {
+        if (!feedbackUsesToast(feedback)) return
+        val label = getString(
+            if (mode == ScanMode.SAFE) R.string.mode_safe else R.string.mode_warning
+        )
+        Toast.makeText(this, getString(R.string.mode_changed_feedback, label), Toast.LENGTH_SHORT)
+            .show()
+        if (feedbackUsesVibration(feedback)) vibrateForModeChange()
+    }
+
+    /** The vibration half of [ModeFeedback.TOAST_AND_VIBRATION]; silent when unavailable. */
+    private fun vibrateForModeChange() {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            getSystemService(VibratorManager::class.java)?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        } ?: return
+        if (!vibrator.hasVibrator()) return
+        vibrator.vibrate(
+            VibrationEffect.createOneShot(MODE_CHANGE_HAPTIC_MS, VibrationEffect.DEFAULT_AMPLITUDE)
+        )
     }
 
     /**
@@ -468,6 +626,9 @@ class MainActivity : AppCompatActivity() {
         // may have been frozen and never received ACTION_USER_PRESENT, leaving the
         // bubble GONE while protection is still enabled.
         FloatingBubbleService.syncBubbleVisibility()
+        // The hidden page may have changed the §1 opening method while this screen was
+        // stopped; the accessibility hint has to describe the gesture that works *now*.
+        refreshFooterDescription()
         // granting_permissions.md: "If a previously granted permission is revoked,
         // the system disables the affected feature and asks the user to grant the
         // permission again." Without the overlay permission no bubble can exist, so
@@ -506,5 +667,11 @@ class MainActivity : AppCompatActivity() {
          * KeyguardManager read per tick.
          */
         const val STATE_RECONCILE_INTERVAL_MS = 500L
+
+        /**
+         * Length of the §7 confirmation pulse for [ModeFeedback.TOAST_AND_VIBRATION]. Matches
+         * the bubble's own haptic so a mode change feels the same wherever it was triggered.
+         */
+        const val MODE_CHANGE_HAPTIC_MS = 50L
     }
 }

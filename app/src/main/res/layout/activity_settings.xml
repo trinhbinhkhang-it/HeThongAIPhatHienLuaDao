@@ -109,6 +109,19 @@
                     android:textColor="@color/text_primary" />
             </RadioGroup>
 
+            <!-- §6: shown only while a detection session has the mode locked. -->
+            <TextView
+                android:id="@+id/mode_locked_notice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:background="@drawable/bg_badge_terracotta"
+                android:padding="@dimen/space_md"
+                android:text="@string/settings_mode_locked"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary"
+                android:visibility="gone" />
+
             <!-- Save (primary pill) -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save_config"

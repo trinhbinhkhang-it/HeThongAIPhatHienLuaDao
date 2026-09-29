@@ -50,18 +50,37 @@ class HiddenSettingsUnitTest {
      * The window has to be wide enough for three deliberate human taps yet short enough
      * that a user who only meant to tap once is not left waiting.
      *
-     * It no longer has to accommodate a *deferred* navigation to Page 2: Settings is now
-     * reached by a two-second hold on the footer (see [VersionFooterGestureUnitTest]), so a
-     * plain tap navigates nowhere and taps 2 and 3 always land on a footer that is still
-     * on screen.
+     * It is also the deferral applied to developer_setting_page.md §1's single-click
+     * navigation (see [VersionFooterGestureUnitTest]): a lone tap waits for the burst to
+     * close so taps 2 and 3 still land on a footer that is on screen. What it must *not* be
+     * is longer than a hold, or a deliberate press-and-hold would sit inside a burst that has
+     * not closed yet.
      */
     @Test
     fun windowIsWideEnoughForThreeHumanTaps() {
         assertEquals(3, TRIPLE_CLICK_COUNT)
         assertTrue("window too tight for three taps", TRIPLE_CLICK_WINDOW_MS >= 3 * 200L)
         assertTrue("window too long, a tap would feel unresponsive", TRIPLE_CLICK_WINDOW_MS <= 1_500L)
-        // The burst must close before the hold could fire, or the two gestures collide.
-        assertTrue(TRIPLE_CLICK_WINDOW_MS < VERSION_LONG_PRESS_MS)
+    }
+
+    /**
+     * A tap must never be mistaken for a hold, even at the shortest §2 setting — the burst
+     * only means anything if taps 2 and 3 actually register as taps.
+     *
+     * This replaces the old "burst < hold" invariant, which no longer holds now that the hold
+     * is a *setting* that can be as short as 0.5 s. The property that matters is per-tap
+     * duration, not the elapsed time between taps.
+     */
+    @Test
+    fun aTapIsNeverLongEnoughToBeAHold() {
+        val typicalTapMs = 150L
+        HoldDuration.values().forEach { duration ->
+            assertTrue(
+                "$duration: a ${typicalTapMs}ms tap must fall short of ${duration.milliseconds}ms",
+                typicalTapMs < duration.milliseconds
+            )
+            assertFalse(isVersionLongPress(typicalTapMs, movedPastSlop = false, duration.milliseconds))
+        }
     }
 
     // ── Defaults match enable_floating_bubble.md ──

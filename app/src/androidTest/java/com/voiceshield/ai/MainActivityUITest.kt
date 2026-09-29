@@ -6,8 +6,10 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.Espresso.pressBack
 import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.action.ViewActions.scrollTo
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.*
+import android.os.SystemClock
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -31,6 +33,10 @@ class MainActivityUITest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         ProtectionState.setActive(context, false)
         ProtectionState.setMode(context, ScanMode.SAFE)
+        // developer_setting_page.md §1–§3/§7 decide which footer gesture the assertions below
+        // are exercising, so they are pinned to their defaults too rather than left to
+        // whatever a previous run happened to save.
+        ProtectionState.resetScanModeInteraction(context)
     }
 
     @Test
@@ -79,13 +85,45 @@ class MainActivityUITest {
      * The footer replaced the bottom nav as the entry point to Page 2.
      * espresso-intents is not in the offline dependency cache, so this asserts
      * on the destination screen's own views rather than intended(hasComponent()).
+     *
+     * developer_setting_page.md §1 makes single click the default, and a lone click *defers*
+     * its navigation to the end of [TRIPLE_CLICK_WINDOW_MS] so that taps 2 and 3 can still
+     * reach the footer for the hidden developer page. Espresso treats a delayed message as an
+     * idle looper, so the wait has to be explicit here.
      */
     @Test
     fun footerVersion_opensSettings() {
         ActivityScenario.launch(MainActivity::class.java).use {
             onView(withId(R.id.footer_version)).perform(click())
+            SystemClock.sleep(TRIPLE_CLICK_WINDOW_MS + 500L)
             onView(withId(R.id.settings_title)).check(matches(isDisplayed()))
             onView(withId(R.id.mode_safe)).check(matches(isDisplayed()))
+            pressBack()
+        }
+    }
+
+    /**
+     * The deferral above is not cosmetic: three taps inside the burst must still reach the
+     * hidden developer page, and the pending single-click navigation must be dropped.
+     */
+    @Test
+    fun footerVersion_tripleTapStillOpensTheHiddenPage() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            repeat(TRIPLE_CLICK_COUNT) {
+                onView(withId(R.id.footer_version)).perform(click())
+            }
+            SystemClock.sleep(TRIPLE_CLICK_WINDOW_MS + 500L)
+            onView(withId(R.id.hidden_settings_title)).check(matches(isDisplayed()))
+            // The four developer_setting_page.md groups live further down the same scroll view,
+            // so each has to be scrolled to before it can be "displayed".
+            onView(withId(R.id.group_scan_mode_entry)).perform(scrollTo())
+                .check(matches(isDisplayed()))
+            onView(withId(R.id.group_hold_duration)).perform(scrollTo())
+                .check(matches(isDisplayed()))
+            onView(withId(R.id.group_auto_mode_selection)).perform(scrollTo())
+                .check(matches(isDisplayed()))
+            onView(withId(R.id.group_mode_feedback)).perform(scrollTo())
+                .check(matches(isDisplayed()))
             pressBack()
         }
     }

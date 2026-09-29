@@ -12,7 +12,9 @@
     <string name="status_icon_content_desc">Trạng thái bảo vệ</string>
     <string name="screen_share_cancelled">Quyền chia sẻ màn hình đã hủy</string>
     <string name="footer_version"><u>Version 1.0.1</u></string>
-    <string name="version_footer_desc">Giữ 2 giây để mở cấu hình chế độ quét. Chạm ba lần để mở cấu hình ẩn.</string>
+    <string name="version_footer_desc_single_click">Chạm một lần để mở chế độ quét. Chạm ba lần để mở cấu hình ẩn.</string>
+    <string name="version_footer_desc_press_hold">Nhấn và giữ để mở chế độ quét. Chạm ba lần để mở cấu hình ẩn.</string>
+    <string name="version_footer_desc_press_hold_swipe_up">Nhấn giữ rồi vuốt lên để mở chế độ quét. Chạm ba lần để mở cấu hình ẩn.</string>
 
     <!-- ===== Floating bubble panel ===== -->
     <string name="panel_title">BẢO VỆ CUỘC GỌI</string>
@@ -64,7 +66,7 @@
     <string name="btn_hidden_reset">Khôi phục mặc định</string>
     <string name="btn_hidden_back">Quay lại</string>
     <string name="hidden_saved">Đã lưu khoảng thời gian quét</string>
-    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây, nhận diện khuôn mặt tắt</string>
+    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây, nhận diện khuôn mặt tắt, mở chế độ quét bằng một chạm, nhấn giữ 1 giây, đổi chế độ tự động tắt, phản hồi tắt</string>
 
     <!-- ===== Hidden developer page: face-recognition gate ===== -->
     <string name="hidden_section_detection">NHẬN DIỆN KHUÔN MẶT</string>
@@ -72,6 +74,31 @@
     <string name="hidden_face_gate_summary">Khi bật, sau khi chạm hai lần vào bubble, ứng dụng sẽ chờ đến khi có khuôn mặt người thật sự xuất hiện trên màn hình rồi mới bắt đầu đếm khoảng thời gian ngẫu nhiên để đưa ra cảnh báo.</string>
     <string name="hidden_face_gate_on">Đã bật chế độ nhận diện khuôn mặt</string>
     <string name="hidden_face_gate_off">Đã tắt chế độ nhận diện khuôn mặt</string>
+
+    <!-- ===== Hidden developer page: scan-mode interaction ===== -->
+    <string name="hidden_section_entry">CÁCH MỞ CHẾ ĐỘ QUÉT</string>
+    <string name="hidden_entry_single_click">Chạm một lần</string>
+    <string name="hidden_entry_press_hold">Nhấn và giữ trong khoảng thời gian đã chọn</string>
+    <string name="hidden_entry_press_hold_swipe_up">Nhấn giữ rồi vuốt lên</string>
+    <string name="hidden_section_hold_duration">THỜI GIAN NHẤN GIỮ</string>
+    <string name="hidden_hold_half_second">0,5 giây</string>
+    <string name="hidden_hold_one_second">1 giây</string>
+    <string name="hidden_hold_two_seconds">2 giây</string>
+    <string name="hidden_hold_duration_note">Thời gian này áp dụng cho mọi thao tác nhấn giữ. Khoảng cách vuốt tối thiểu là một giá trị riêng và không thay đổi theo thời gian nhấn giữ.</string>
+    <string name="hidden_section_auto_mode">ĐỔI CHẾ ĐỘ TỰ ĐỘNG</string>
+    <string name="hidden_auto_disabled">Tắt</string>
+    <string name="hidden_auto_swipe">Đổi chế độ bằng việc vuốt sang trái hoặc phải</string>
+    <string name="hidden_auto_bubble_position">Đổi chế độ dựa trên vị trí bubble</string>
+    <string name="hidden_section_feedback">PHẢN HỒI KHI ĐỔI CHẾ ĐỘ</string>
+    <string name="hidden_feedback_disabled">Tắt</string>
+    <string name="hidden_feedback_toast">Toast</string>
+    <string name="hidden_feedback_toast_vibration">Toast và rung</string>
+    <string name="hidden_interaction_note">Bốn mục trên có hiệu lực ngay khi chọn và được lưu lại sau khi khởi động lại ứng dụng. Chế độ quét đang chọn không bị thay đổi.</string>
+    <string name="hidden_interaction_saved">Đã lưu cài đặt tương tác</string>
+
+    <!-- ===== Scan-mode change feedback (§7) ===== -->
+    <string name="mode_changed_feedback">Chế độ quét: %1$s</string>
+    <string name="settings_mode_locked">Bubble đang hoạt động nên chế độ quét của phiên hiện tại đã được khoá. Chế độ mới chỉ áp dụng cho phiên quét kế tiếp, sau khi bubble ngừng hoạt động.</string>
 
     <!-- ===== Bubble scan popups ===== -->
     <string name="popup_safe_message">Hệ thống đánh giá cuộc gọi An Toàn</string>

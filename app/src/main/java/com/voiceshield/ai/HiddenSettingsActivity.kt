@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.CompoundButton
+import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -19,36 +20,41 @@ const val TRIPLE_CLICK_COUNT = 3
  * Whole burst window, in milliseconds, measured from the *first* tap. All three taps
  * must land inside it.
  *
- * It used to double as the delay before the ordinary single-tap navigation to Page 2, so
- * that taps 2 and 3 could still reach the footer. Page 2 is now a two-second hold instead
- * (see [VERSION_LONG_PRESS_MS]) and a plain tap navigates nowhere, so this is purely the
- * triple-tap deadline — nothing has to be deferred around it any more.
+ * It also doubles as the deferral for the §1 single-click navigation to Page 2 (see
+ * [DEFAULT_SCAN_MODE_ENTRY]): a lone tap has to wait until the burst closes before it
+ * navigates, or taps 2 and 3 would land on Page 2 instead of the footer and the hidden
+ * page would become unreachable.
  */
 const val TRIPLE_CLICK_WINDOW_MS = 900L
 
 /**
- * How long the "Version 1.0.1" footer must be held to open Page 2 (Settings), where the
- * scan mode is configured.
+ * Fallback for the "Version 1.0.1" hold, used when no explicit duration is supplied.
  *
- * Two seconds is deliberately much longer than the platform's ~500 ms long-press timeout:
- * the footer sits at the bottom of the home screen, right where a thumb rests, so an
- * ordinary long-press would open Settings by accident. The hold *replaces* the single tap
- * that used to navigate there.
+ * developer_setting_page.md §2 makes this a *setting*: the hidden page offers 0.5 s, 1 s and
+ * 2 s, defaulting to 1 s, and the selected value drives every hold gesture in the spec. So
+ * the real threshold is always [ProtectionState.holdDurationMs]; this constant is only the
+ * default a pure call falls back to.
+ *
+ * A half-second floor is still deliberately above an ordinary tap (~80 ms), so the hold never
+ * fires by accident — the reason the original fixed value was two seconds.
  */
-const val VERSION_LONG_PRESS_MS = 2_000L
+val DEFAULT_VERSION_HOLD_MS: Long = DEFAULT_HOLD_DURATION.milliseconds
 
 /**
- * Pure rule for the version-footer hold.
+ * Pure rule for the version-footer hold (developer_setting_page.md §2).
  *
  * The hold counts only when it ran the full [requiredMs] *and* was never broken by the
  * finger travelling past the touch slop — otherwise a scroll or a shaky grip would open
  * the scan-mode settings page. Top-level and Android-free, exactly like [isTripleClick],
  * so the gesture is unit-testable on the local JVM.
+ *
+ * [requiredMs] is the configured [HoldDuration], which is why it is a parameter and not a
+ * constant here.
  */
 fun isVersionLongPress(
     heldMs: Long,
     movedPastSlop: Boolean,
-    requiredMs: Long = VERSION_LONG_PRESS_MS
+    requiredMs: Long = DEFAULT_VERSION_HOLD_MS
 ): Boolean = !movedPastSlop && heldMs >= requiredMs
 
 /**
@@ -87,6 +93,17 @@ fun isClickBurstOpen(
  * It also carries the "Chế độ nhận diện khuôn mặt" gate, which makes a double-tapped
  * scan wait for a real human face on screen before the random window — and therefore
  * before any warning — can start. See [shouldArmScanTimer].
+ *
+ * developer_setting_page.md adds four more single-choice groups here, all applied the
+ * moment they are picked and all persisted:
+ *  - §1 how the "Chế độ quét" page is opened from the version footer;
+ *  - §2 how long every press-and-hold in the spec has to last;
+ *  - §3 the one automatic scan-mode selection method, if any;
+ *  - §7 what feedback, if any, follows a real mode change.
+ *
+ * Each is a [RadioGroup] holding a single enum value, so "exactly one opening method" and
+ * "at most one automatic method" cannot be violated even in principle. None of them stores
+ * or touches the selected [ScanMode]; see [ScanModeInteractionSettings].
  */
 class HiddenSettingsActivity : AppCompatActivity() {
 
@@ -96,6 +113,40 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var warningMaxInput: TextInputEditText
     private lateinit var preview: TextView
     private lateinit var faceGateSwitch: SwitchMaterial
+
+    // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
+    // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
+    // what makes "Exactly one opening method can be selected" and "At most one automatic
+    // mode-selection method can be selected" true in the UI as well as in the stored enum.
+    private lateinit var entryGroup: RadioGroup
+    private lateinit var holdDurationGroup: RadioGroup
+    private lateinit var autoSelectionGroup: RadioGroup
+    private lateinit var feedbackGroup: RadioGroup
+
+    /**
+     * The interaction settings currently on screen, rebuilt from the checked radio buttons.
+     *
+     * Read as one value so a change to any single group is persisted as a whole and the four
+     * settings can never be left half-written.
+     */
+    private fun enteredInteraction() = ScanModeInteractionSettings(
+        entry = scanModeEntryForId(entryGroup.checkedRadioButtonId),
+        holdDuration = holdDurationForId(holdDurationGroup.checkedRadioButtonId),
+        autoSelection = autoModeSelectionForId(autoSelectionGroup.checkedRadioButtonId),
+        feedback = modeFeedbackForId(feedbackGroup.checkedRadioButtonId)
+    )
+
+    /**
+     * Applies the interaction settings the moment any group changes, and says so.
+     *
+     * Held in a field rather than inlined so [resetInteractionGroups] can detach it while
+     * forcing the radios back to their defaults — otherwise the programmatic check would fire
+     * this listener four times over and its toast would overwrite the reset confirmation.
+     */
+    private val interactionListener = RadioGroup.OnCheckedChangeListener { _, _ ->
+        ProtectionState.setScanModeInteraction(this, enteredInteraction())
+        Toast.makeText(this, R.string.hidden_interaction_saved, Toast.LENGTH_SHORT).show()
+    }
 
     /**
      * Applies the gate the moment it is flipped and confirms it with a toast.
@@ -124,6 +175,10 @@ class HiddenSettingsActivity : AppCompatActivity() {
         warningMaxInput = findViewById(R.id.input_warning_max)
         preview = findViewById(R.id.hidden_preview)
         faceGateSwitch = findViewById(R.id.switch_face_gate)
+        entryGroup = findViewById(R.id.group_scan_mode_entry)
+        holdDurationGroup = findViewById(R.id.group_hold_duration)
+        autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
+        feedbackGroup = findViewById(R.id.group_mode_feedback)
 
         bind(ProtectionState.getSafeInterval(this), ProtectionState.getWarningInterval(this))
 
@@ -131,6 +186,12 @@ class HiddenSettingsActivity : AppCompatActivity() {
         // listens for ACTION_FACE_GATE_CHANGED and follows the new setting immediately.
         faceGateSwitch.isChecked = ProtectionState.isFaceGateEnabled(this)
         faceGateSwitch.setOnCheckedChangeListener(faceGateListener)
+
+        // §1–§3/§7 are applied on change for the same reason, and bound *before* the
+        // listener is attached so echoing the persisted selection cannot re-save it.
+        bindInteraction(ProtectionState.getScanModeInteraction(this))
+        listOf(entryGroup, holdDurationGroup, autoSelectionGroup, feedbackGroup)
+            .forEach { it.setOnCheckedChangeListener(interactionListener) }
 
         // Live preview of what will actually be saved, sanitisation included, so a
         // clamped or swapped pair is visible before the user commits to it.
@@ -163,8 +224,40 @@ class HiddenSettingsActivity : AppCompatActivity() {
         faceGateSwitch.setOnCheckedChangeListener(null)
         faceGateSwitch.isChecked = false
         faceGateSwitch.setOnCheckedChangeListener(faceGateListener)
+        // …and the four developer_setting_page.md interaction settings, back to single
+        // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
+        // alone: it is not one of these settings, and §8 requires it to survive.
+        ProtectionState.resetScanModeInteraction(this)
+        resetInteractionGroups()
         bind(DEFAULT_SAFE_INTERVAL, DEFAULT_WARNING_INTERVAL)
         Toast.makeText(this, R.string.hidden_reset, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Echoes [settings] back into the four radio groups with the listener detached, so
+     * restoring a selection is never mistaken for the user making one.
+     */
+    private fun resetInteractionGroups() {
+        detachInteractionListener()
+        bindInteraction(DEFAULT_SCAN_MODE_INTERACTION)
+        attachInteractionListener()
+    }
+
+    private fun detachInteractionListener() {
+        listOf(entryGroup, holdDurationGroup, autoSelectionGroup, feedbackGroup)
+            .forEach { it.setOnCheckedChangeListener(null) }
+    }
+
+    private fun attachInteractionListener() {
+        listOf(entryGroup, holdDurationGroup, autoSelectionGroup, feedbackGroup)
+            .forEach { it.setOnCheckedChangeListener(interactionListener) }
+    }
+
+    private fun bindInteraction(settings: ScanModeInteractionSettings) {
+        entryGroup.check(idForScanModeEntry(settings.entry))
+        holdDurationGroup.check(idForHoldDuration(settings.holdDuration))
+        autoSelectionGroup.check(idForAutoModeSelection(settings.autoSelection))
+        feedbackGroup.check(idForModeFeedback(settings.feedback))
     }
 
     private fun enteredSafeInterval() = sanitizeInterval(
@@ -216,4 +309,70 @@ class HiddenSettingsActivity : AppCompatActivity() {
         override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
         override fun afterTextChanged(s: Editable?) = onChange()
     }
+}
+
+// ── Radio id <-> setting mapping (developer_setting_page.md §1–§3, §7) ────────
+// Kept as top-level functions in the same convention as [sanitizeInterval] and
+// [isTripleClick]: an unknown or missing id falls back to the spec default instead of
+// throwing, so a layout edit that drops a button degrades to the documented behaviour
+// rather than crashing the hidden page.
+
+/** §1 radio id -> opening method. */
+fun scanModeEntryForId(id: Int): ScanModeEntry = when (id) {
+    R.id.radio_entry_single_click -> ScanModeEntry.SINGLE_CLICK
+    R.id.radio_entry_press_hold -> ScanModeEntry.PRESS_AND_HOLD
+    R.id.radio_entry_press_hold_swipe_up -> ScanModeEntry.PRESS_HOLD_SWIPE_UP
+    else -> DEFAULT_SCAN_MODE_ENTRY
+}
+
+/** §1 opening method -> radio id. */
+fun idForScanModeEntry(entry: ScanModeEntry): Int = when (entry) {
+    ScanModeEntry.SINGLE_CLICK -> R.id.radio_entry_single_click
+    ScanModeEntry.PRESS_AND_HOLD -> R.id.radio_entry_press_hold
+    ScanModeEntry.PRESS_HOLD_SWIPE_UP -> R.id.radio_entry_press_hold_swipe_up
+}
+
+/** §2 radio id -> hold duration. */
+fun holdDurationForId(id: Int): HoldDuration = when (id) {
+    R.id.radio_hold_half_second -> HoldDuration.HALF_SECOND
+    R.id.radio_hold_one_second -> HoldDuration.ONE_SECOND
+    R.id.radio_hold_two_seconds -> HoldDuration.TWO_SECONDS
+    else -> DEFAULT_HOLD_DURATION
+}
+
+/** §2 hold duration -> radio id. */
+fun idForHoldDuration(duration: HoldDuration): Int = when (duration) {
+    HoldDuration.HALF_SECOND -> R.id.radio_hold_half_second
+    HoldDuration.ONE_SECOND -> R.id.radio_hold_one_second
+    HoldDuration.TWO_SECONDS -> R.id.radio_hold_two_seconds
+}
+
+/** §3 radio id -> automatic mode-selection method. */
+fun autoModeSelectionForId(id: Int): AutoModeSelection = when (id) {
+    R.id.radio_auto_disabled -> AutoModeSelection.DISABLED
+    R.id.radio_auto_swipe -> AutoModeSelection.SWIPE_LEFT_RIGHT
+    R.id.radio_auto_bubble_position -> AutoModeSelection.BUBBLE_POSITION
+    else -> DEFAULT_AUTO_MODE_SELECTION
+}
+
+/** §3 automatic mode-selection method -> radio id. */
+fun idForAutoModeSelection(selection: AutoModeSelection): Int = when (selection) {
+    AutoModeSelection.DISABLED -> R.id.radio_auto_disabled
+    AutoModeSelection.SWIPE_LEFT_RIGHT -> R.id.radio_auto_swipe
+    AutoModeSelection.BUBBLE_POSITION -> R.id.radio_auto_bubble_position
+}
+
+/** §7 radio id -> mode-change feedback. */
+fun modeFeedbackForId(id: Int): ModeFeedback = when (id) {
+    R.id.radio_feedback_disabled -> ModeFeedback.DISABLED
+    R.id.radio_feedback_toast -> ModeFeedback.TOAST
+    R.id.radio_feedback_toast_vibration -> ModeFeedback.TOAST_AND_VIBRATION
+    else -> DEFAULT_MODE_FEEDBACK
+}
+
+/** §7 mode-change feedback -> radio id. */
+fun idForModeFeedback(feedback: ModeFeedback): Int = when (feedback) {
+    ModeFeedback.DISABLED -> R.id.radio_feedback_disabled
+    ModeFeedback.TOAST -> R.id.radio_feedback_toast
+    ModeFeedback.TOAST_AND_VIBRATION -> R.id.radio_feedback_toast_vibration
 }

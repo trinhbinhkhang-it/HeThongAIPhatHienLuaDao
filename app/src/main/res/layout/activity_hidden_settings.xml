@@ -66,6 +66,7 @@
             android:padding="@dimen/card_padding">
 
             <TextView
+                android:id="@+id/hidden_settings_title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/hidden_settings_title"
@@ -263,6 +264,211 @@
                     android:layout_marginStart="@dimen/space_md"
                     android:contentDescription="@string/hidden_face_gate_title" />
             </LinearLayout>
+
+            <!-- ===== developer_setting_page.md §1-§3 and §7 =====
+                 Four single-choice groups. RadioButtons are direct children of their
+                 RadioGroup so that checking one unchecks the rest, which is what makes
+                 "exactly one opening method" and "at most one automatic method" true in
+                 the UI and not only in the stored enum. -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_entry"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <RadioGroup
+                android:id="@+id/group_scan_mode_entry"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_entry_single_click"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_entry_single_click"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_entry_press_hold"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_entry_press_hold"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_entry_press_hold_swipe_up"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_entry_press_hold_swipe_up"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_hold_duration"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <RadioGroup
+                android:id="@+id/group_hold_duration"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_hold_half_second"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_hold_half_second"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_hold_one_second"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_hold_one_second"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_hold_two_seconds"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_hold_two_seconds"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_hold_duration_note"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_auto_mode"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <RadioGroup
+                android:id="@+id/group_auto_mode_selection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_auto_disabled"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_auto_disabled"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_auto_swipe"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_auto_swipe"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_auto_bubble_position"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_auto_bubble_position"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_feedback"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <RadioGroup
+                android:id="@+id/group_mode_feedback"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical">
+
+                <RadioButton
+                    android:id="@+id/radio_feedback_disabled"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_feedback_disabled"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_feedback_toast"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_feedback_toast"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+
+                <RadioButton
+                    android:id="@+id/radio_feedback_toast_vibration"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:buttonTint="@color/mint_500"
+                    android:minHeight="@dimen/chip_height"
+                    android:text="@string/hidden_feedback_toast_vibration"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </RadioGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_interaction_note"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
 
             <!-- Save (primary pill) -->
             <com.google.android.material.button.MaterialButton

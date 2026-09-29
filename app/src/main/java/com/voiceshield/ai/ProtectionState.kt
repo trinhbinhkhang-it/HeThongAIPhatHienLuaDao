@@ -83,6 +83,13 @@ object ProtectionState {
     private const val KEY_WARNING_MAX = "warning_interval_max_seconds"
     private const val KEY_FACE_GATE = "face_gate_enabled"
 
+    // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
+    // so reordering an enum can never silently re-map a user's saved choice.
+    private const val KEY_SCAN_MODE_ENTRY = "scan_mode_entry"
+    private const val KEY_HOLD_DURATION = "hold_duration"
+    private const val KEY_AUTO_MODE_SELECTION = "auto_mode_selection"
+    private const val KEY_MODE_FEEDBACK = "mode_feedback"
+
     const val ACTION_CHANGED = "com.voiceshield.ai.PROTECTION_STATE_CHANGED"
     const val EXTRA_ACTIVE = "active"
 
@@ -178,6 +185,66 @@ object ProtectionState {
                 .putExtra(EXTRA_FACE_GATE, enabled)
         )
     }
+
+    /**
+     * The developer_setting_page.md §1–§3/§7 interaction settings, read as one bundle.
+     *
+     * Each value is parsed defensively ([scanModeEntryFrom] and friends), so a hand-edited
+     * SharedPreferences file, or an enum renamed by a later refactor, degrades to the spec
+     * default instead of crashing the very gesture it configures.
+     *
+     * Deliberately does *not* include the selected [ScanMode]: keeping the two apart is what
+     * makes "Changing the hold duration does not change the selected scan mode" impossible
+     * to get wrong.
+     */
+    fun getScanModeInteraction(context: Context) = ScanModeInteractionSettings(
+        entry = scanModeEntryFrom(prefs(context).getString(KEY_SCAN_MODE_ENTRY, null)),
+        holdDuration = holdDurationFrom(prefs(context).getString(KEY_HOLD_DURATION, null)),
+        autoSelection = autoModeSelectionFrom(
+            prefs(context).getString(KEY_AUTO_MODE_SELECTION, null)
+        ),
+        feedback = modeFeedbackFrom(prefs(context).getString(KEY_MODE_FEEDBACK, null))
+    )
+
+    /** §1: how the "Chế độ quét" page is opened from the version footer. */
+    fun getScanModeEntry(context: Context): ScanModeEntry =
+        getScanModeInteraction(context).entry
+
+    /** §2: the press-and-hold threshold shared by every hold gesture in the spec. */
+    fun getHoldDuration(context: Context): HoldDuration =
+        getScanModeInteraction(context).holdDuration
+
+    /** §2 in milliseconds — the form the gesture plumbing actually schedules with. */
+    fun holdDurationMs(context: Context): Long = getHoldDuration(context).milliseconds
+
+    /** §3: the single automatic mode-selection method, if any. */
+    fun getAutoModeSelection(context: Context): AutoModeSelection =
+        getScanModeInteraction(context).autoSelection
+
+    /** §7: what the app does after the scan mode has really changed. */
+    fun getModeFeedback(context: Context): ModeFeedback =
+        getScanModeInteraction(context).feedback
+
+    /**
+     * Persists the four interaction settings.
+     *
+     * No broadcast is sent: unlike [setMode] and [setIntervals], nothing has to react while
+     * running. The footer re-reads the bundle on every ACTION_DOWN and the bubble re-reads
+     * the auto-selection on every completed snap, so a change made on the hidden page takes
+     * effect on the next gesture without any listener.
+     */
+    fun setScanModeInteraction(context: Context, settings: ScanModeInteractionSettings) {
+        prefs(context).edit()
+            .putString(KEY_SCAN_MODE_ENTRY, settings.entry.name)
+            .putString(KEY_HOLD_DURATION, settings.holdDuration.name)
+            .putString(KEY_AUTO_MODE_SELECTION, settings.autoSelection.name)
+            .putString(KEY_MODE_FEEDBACK, settings.feedback.name)
+            .apply()
+    }
+
+    /** Restores the developer_setting_page.md defaults for all four interaction settings. */
+    fun resetScanModeInteraction(context: Context) =
+        setScanModeInteraction(context, DEFAULT_SCAN_MODE_INTERACTION)
 
     /**
      * The delay the bubble service should actually schedule: the pure
