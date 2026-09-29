@@ -332,6 +332,13 @@ fun resolveFooterRelease(
         ScanModeEntry.PRESS_AND_HOLD ->
             if (holdSatisfied && swipe == null) {
                 FooterAction.OPEN_SCAN_MODE_PAGE
+            } else if (!holdSatisfied && swipe == null) {
+                // A clean release *before* the configured duration is not an opening gesture,
+                // but it is still a tap. It has to be counted, otherwise §1's two hold-based
+                // methods starve the triple-tap counter entirely and the hidden developer page —
+                // the only place §1 itself can be changed — becomes permanently unreachable.
+                // A swipe is still not a tap, for the same reason SINGLE_CLICK rejects one.
+                FooterAction.COUNT_TAP
             } else {
                 FooterAction.NONE
             }
@@ -339,6 +346,8 @@ fun resolveFooterRelease(
         ScanModeEntry.PRESS_HOLD_SWIPE_UP ->
             if (holdSatisfied && swipe == SwipeDirection.UP) {
                 FooterAction.OPEN_SCAN_MODE_PAGE
+            } else if (!holdSatisfied && swipe == null) {
+                FooterAction.COUNT_TAP
             } else {
                 FooterAction.NONE
             }

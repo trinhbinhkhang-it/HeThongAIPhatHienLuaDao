@@ -128,6 +128,32 @@ class MainActivityUITest {
         }
     }
 
+    /**
+     * The reported lockout, end to end.
+     *
+     * The hidden page is the only place §1 can be changed, so a triple tap must reach it under
+     * *every* §1 method. Before the fix, a quick tap under a hold-based method resolved to
+     * `FooterAction.NONE`, `performClick()` never ran, `versionTapCount` never moved off zero and
+     * the page — together with the very setting that caused the problem — was unreachable for
+     * good. This loops all three methods so neither hold option can regress it again.
+     */
+    @Test
+    fun footerVersion_tripleTapOpensTheHiddenPageUnderEveryOpeningMethod() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        ScanModeEntry.values().forEach { entry ->
+            ProtectionState.setScanModeInteraction(context, ScanModeInteractionSettings(entry = entry))
+            ActivityScenario.launch(MainActivity::class.java).use {
+                repeat(TRIPLE_CLICK_COUNT) {
+                    onView(withId(R.id.footer_version)).perform(click())
+                }
+                SystemClock.sleep(TRIPLE_CLICK_WINDOW_MS + 500L)
+                onView(withId(R.id.hidden_settings_title)).check(matches(isDisplayed()))
+                pressBack()
+            }
+        }
+        ProtectionState.resetScanModeInteraction(context)
+    }
+
     @Test
     fun appContext_isCorrect() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext

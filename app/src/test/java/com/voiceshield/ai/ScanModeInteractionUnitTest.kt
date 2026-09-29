@@ -2,6 +2,7 @@ package com.voiceshield.ai
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -295,13 +296,13 @@ class ScanModeInteractionUnitTest {
             release(ScanModeEntry.PRESS_AND_HOLD, holdSatisfied = true)
         )
         assertEquals(
-            "releasing early does nothing",
-            FooterAction.NONE,
+            "releasing early does not open the page",
+            FooterAction.COUNT_TAP,
             release(ScanModeEntry.PRESS_AND_HOLD, holdSatisfied = false)
         )
         assertEquals(
-            "and a tap is not a hold",
-            FooterAction.NONE,
+            "and a tap is not a hold — but it is still a tap the counter must see",
+            FooterAction.COUNT_TAP,
             release(ScanModeEntry.PRESS_AND_HOLD, holdSatisfied = false, swipe = null)
         )
     }
@@ -333,7 +334,8 @@ class ScanModeInteractionUnitTest {
             FooterAction.NONE,
             release(ScanModeEntry.PRESS_HOLD_SWIPE_UP, holdSatisfied = true, swipe = null)
         )
-        // Hold released early, whatever the swipe.
+        // Hold released early, whatever the swipe. The swipe makes it not-a-tap, so it is
+        // ignored rather than counted; a *clean* early release is counted (see below).
         SwipeDirection.values().forEach { direction ->
             assertEquals(
                 "early release + $direction",
@@ -348,6 +350,43 @@ class ScanModeInteractionUnitTest {
                 FooterAction.NONE,
                 release(ScanModeEntry.PRESS_HOLD_SWIPE_UP, holdSatisfied = true, swipe = direction)
             )
+        }
+    }
+
+    /**
+     * Regression guard for the developer-page lockout.
+     *
+     * The hidden page is the *only* place §1 can be changed, so a triple tap has to reach it
+     * under every §1 method. Feeding the counter only for [ScanModeEntry.SINGLE_CLICK] meant
+     * that choosing either hold-based method silently starved it: three taps produced three
+     * [FooterAction.NONE]s, the count never moved off zero, and the page — along with the very
+     * setting that caused the problem — became permanently unreachable.
+     */
+    @Test
+    fun aCleanTapIsCountedUnderEveryOpeningMethod() {
+        ScanModeEntry.values().forEach { entry ->
+            assertEquals(
+                "$entry must still count a plain tap",
+                FooterAction.COUNT_TAP,
+                release(entry, holdSatisfied = false, swipe = null)
+            )
+        }
+    }
+
+    /**
+     * The other half of the same rule: counting is for *taps*. A drag off the footer is not one,
+     * under any method, or a stray swipe would advance a burst the user never meant to start.
+     */
+    @Test
+    fun aSwipeIsNeverCountedAsATapUnderAnyOpeningMethod() {
+        ScanModeEntry.values().forEach { entry ->
+            SwipeDirection.values().forEach { direction ->
+                assertNotEquals(
+                    "$entry/$direction",
+                    FooterAction.COUNT_TAP,
+                    release(entry, holdSatisfied = false, swipe = direction)
+                )
+            }
         }
     }
 
