@@ -17,6 +17,7 @@ import android.app.KeyguardManager
 import android.view.MotionEvent
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -60,6 +61,38 @@ enum class RiskLevel { NO_RESULT, NORMAL, SUSPICIOUS, HIGH_RISK }
  */
 fun shouldApplyFaceDetection(scanning: Boolean, faceDetected: Boolean): Boolean =
     scanning && faceDetected
+
+/**
+ * enable_floating_bubble.md §"Detection status" — the three states a detection session can
+ * report while protection is running.
+ *
+ * UC-02 names them explicitly: step 4 ("the system starts face detection (status:
+ * Detecting)"), step 7 ("the detection status becomes 'Result displayed'") and step 9
+ * ("the system changes the bubble to inactive and stops detection (status: Idle)").
+ */
+enum class DetectionStatus { IDLE, DETECTING, RESULT_DISPLAYED }
+
+/**
+ * Derives the UC-02 Detection status from the two flags the bubble already tracks, instead
+ * of storing a third one that could drift out of step with them.
+ *
+ *  - [scanning] false                  -> [DetectionStatus.IDLE]
+ *  - scanning, no result shown yet     -> [DetectionStatus.DETECTING]
+ *  - scanning, result already shown    -> [DetectionStatus.RESULT_DISPLAYED]
+ *
+ * The last case is what keeps the UC-02 postcondition "the bubble stays active, detection
+ * status is 'Result displayed'" true after [ACTION_UP] on the pop-up's "Đóng" (A1): closing
+ * the In-App Pop-up is not a deactivation, so only a second double-click returns the status
+ * to Idle.
+ *
+ * Pure and Android-free, in the same convention as [shouldApplyFaceDetection] and
+ * [shouldArmScanTimer], so the state machine is JVM-unit-testable.
+ */
+fun detectionStatusOf(scanning: Boolean, resultDisplayed: Boolean): DetectionStatus = when {
+    !scanning -> DetectionStatus.IDLE
+    resultDisplayed -> DetectionStatus.RESULT_DISPLAYED
+    else -> DetectionStatus.DETECTING
+}
 
 /**
  * Pure geometry gate for the drag-to-dismiss gesture
@@ -314,6 +347,37 @@ class FloatingBubbleService : Service() {
      */
     private var sessionMode: ScanMode? = null
 
+    /**
+     * UC-02 step 7 — true once the live session has shown its result (the pop-up, and in
+     * Warning Mode the notification that rides the same timer).
+     *
+     * Reset by [startScan] and [stopScan], and *not* by closing the pop-up (A1), which is
+     * what makes [detectionStatusOf] report "Result displayed" for the rest of the session.
+     */
+    private var resultDisplayed = false
+
+    /**
+     * UC-02 step 5 — the face the live session saved, in screen coordinates.
+     *
+     * Filled from the tracked rectangle [ScreenCaptureService] puts on its face-detection
+     * broadcast, and only while a scan is running (an idle bubble saves nothing, A3). It
+     * stays for as long as the session does and is dropped exactly when the session ends —
+     * [stopScan] for a second double-click (step 10) and [onDestroy] for the teardown paths
+     * that never reach [stopScan] (A2, A6, A7). Null means "no face in this session".
+     */
+    private var sessionFace: Rect? = null
+
+    /**
+     * The most recent face rectangle ScreenCaptureService reported, remembered even while the
+     * bubble is idle — the exact companion of [participantFaceDetected], and for the same
+     * reason: the capture service only broadcasts when that state *changes*, so a face already
+     * in frame when the user double-taps would otherwise never reach the new session.
+     *
+     * Deliberately not session-scoped and not cleared by [stopScan]: it caches what the screen
+     * currently shows, of which [sessionFace] is the session-scoped copy.
+     */
+    private var lastReportedFaceBounds: Rect? = null
+
     /** Guards the blink recursion so stopBlink() can't be raced by an end-action. */
     private var isBlinking = false
     private var blinkingIcon: ImageView? = null
@@ -417,6 +481,11 @@ class FloatingBubbleService : Service() {
                 showHighRiskNotification()
             }
         }
+        // UC-02 step 7: the session has now produced its result, so the Detection status
+        // moves from Detecting to "Result displayed" and stays there until deactivation —
+        // closing the pop-up (A1) must not walk it back.
+        resultDisplayed = true
+        publishDetectionStatus()
     }
 
     // NOTE: there is deliberately no ACTION_MODE_CHANGED receiver here any more. It used to
@@ -464,15 +533,47 @@ class FloatingBubbleService : Service() {
             if (intent.action != ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED) return
 
             val detected = intent.getBooleanExtra(ScreenCaptureService.EXTRA_FACE_DETECTED, false)
+            // The tracked rectangle rides the same broadcast (UC-02 step 5); read it once.
+            val bounds = intent.faceBounds()
             // Always remember the latest state, even while idle: the user may
             // double-tap later and no new broadcast will arrive by then.
             participantFaceDetected = detected
+            // Cache the rectangle beside the flag, under the same "remember it even while idle"
+            // rule: a session started after this report has no new broadcast coming.
+            lastReportedFaceBounds = if (detected) bounds ?: lastReportedFaceBounds else null
             // "Chế độ nhận diện khuôn mặt": this is the event a parked scan waits for.
             releaseFaceGateIfSatisfied()
             // Idle bubble -> ignored. Only a double-tap scan consumes results.
-            if (shouldApplyFaceDetection(scanning, detected)) beginResultSequence()
+            if (shouldApplyFaceDetection(scanning, detected)) {
+                // UC-02 step 5: "the system saves the detected face to the current session."
+                // The same gate as the model-result sequence, so an idle bubble saves nothing
+                // (A3) and a face reported before the double-tap is never carried into the
+                // new session.
+                if (bounds != null) {
+                    sessionFace = bounds
+                    // Republish so the companion's sessionFaceBounds tracks the face the
+                    // session now holds, not just the one it had when the status last moved.
+                    publishDetectionStatus()
+                }
+                beginResultSequence()
+            }
         }
     }
+
+    /**
+     * The tracked face rectangle [ScreenCaptureService] attaches to its face-detection
+     * broadcast, or null when the report carried none.
+     *
+     * API-guarded for the same reason [ScreenCaptureService] guards its own projection
+     * payload: the typed `getParcelableExtra` overload only exists from API 33.
+     */
+    private fun Intent.faceBounds(): Rect? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableExtra(ScreenCaptureService.EXTRA_FACE_BOUNDS, Rect::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            getParcelableExtra(ScreenCaptureService.EXTRA_FACE_BOUNDS)
+        }
 
     /**
      * Component 6 — Lifecycle Rules (enable_floating_bubble.md): "When the device is
@@ -596,10 +697,17 @@ class FloatingBubbleService : Service() {
         bubbleAttached = false
         bubbleHiddenByLock = false
         windowAttachSettled = false
-        // The session dies with the service: nothing may keep claiming a locked mode, and no
-        // pop-up window can still be up once this returns.
+        // The session dies with the service: nothing may keep claiming a locked mode, the
+        // face it saved goes with it, and no pop-up window can still be up once this returns.
         sessionMode = null
+        resultDisplayed = false
+        sessionFace = null
+        // No stopScan() runs on this path (A2 "Tắt bảo vệ", A6 drag-to-X, A7 lifecycle), so
+        // the active flag is cleared here too. It is what the Detection status is derived
+        // from, and a dead service must report Idle rather than a session that no longer runs.
+        scanning = false
         publishSessionMode()
+        publishDetectionStatus()
         popupAttached = false
         liveInstanceRef = null
         // Announced *before* the teardown work rather than after it. This is the signal
@@ -1313,7 +1421,12 @@ class FloatingBubbleService : Service() {
         // current detection session." One copy, here, and nothing re-reads the preference
         // again until stopScan() clears it — that is the whole lock.
         sessionMode = ProtectionState.getMode(this)
+        // UC-02 steps 2-4: a brand-new session has produced no result and holds no face yet,
+        // so the Detection status starts at Detecting and the session face starts empty.
+        resultDisplayed = false
+        sessionFace = null
         publishSessionMode()
+        publishDetectionStatus()
         // Read the gate *before* render(): render() picks the content description from
         // awaitingFace, so the bubble has to know it is waiting before it repaints.
         val faceGateOn = ProtectionState.isFaceGateEnabled(this)
@@ -1330,7 +1443,13 @@ class FloatingBubbleService : Service() {
         // A participant face may already be in frame: it was reported while the
         // bubble was idle (and deliberately ignored), and ScreenCaptureService
         // only re-broadcasts when that state *changes*.
-        if (shouldApplyFaceDetection(scanning, participantFaceDetected)) beginResultSequence()
+        if (shouldApplyFaceDetection(scanning, participantFaceDetected)) {
+            // UC-02 step 5 applies to it all the same, so the new session adopts the cached
+            // rectangle rather than staying empty until the next change is reported.
+            sessionFace = lastReportedFaceBounds
+            publishDetectionStatus()
+            beginResultSequence()
+        }
     }
 
     /**
@@ -1347,7 +1466,12 @@ class FloatingBubbleService : Service() {
         // §6: the bubble is inactive again, so the session's mode lock is released and the
         // next double tap copies whatever is selected at that point.
         sessionMode = null
+        // UC-02 step 10: "the system removes the face from the current session and ends the
+        // session." Ending it clears the face it saved and returns the Detection status to Idle.
+        resultDisplayed = false
+        sessionFace = null
         publishSessionMode()
+        publishDetectionStatus()
         handler.removeCallbacks(scanRunnable)
         cancelResultSequence()
         removePanel()
@@ -1392,6 +1516,19 @@ class FloatingBubbleService : Service() {
     private fun publishSessionMode() {
         sessionActiveRef = scanning && sessionMode != null
         sessionModeRef = sessionMode
+    }
+
+    /**
+     * Mirrors the UC-02 Detection status into the companion, exactly as [publishSessionMode]
+     * mirrors the locked mode.
+     *
+     * Derived from the live flags rather than stored, so the status a reader sees can never
+     * disagree with what the bubble is actually doing. Called wherever a session starts, is
+     * torn down, shows its result, or saves a face.
+     */
+    private fun publishDetectionStatus() {
+        detectionStatusRef = detectionStatusOf(scanning, resultDisplayed)
+        sessionFaceRef = sessionFace
     }
 
     /**
@@ -1898,6 +2035,25 @@ class FloatingBubbleService : Service() {
         private var sessionActiveRef = false
 
         /**
+         * UC-02 "Detection status" — the status of the running session, mirrored out of the
+         * instance so any surface can report Idle / Detecting / Result displayed without
+         * reaching into a live Service.
+         *
+         * Written only by publishDetectionStatus(), on the same main-thread transitions that
+         * move the session; volatile because a reader may be on its own thread. Idle is the
+         * correct initial value: no session can be running before the service exists.
+         */
+        @Volatile
+        private var detectionStatusRef = DetectionStatus.IDLE
+
+        /**
+         * UC-02 step 5 — the face the running session saved, or null when the session never
+         * saw one (A3) or has ended and dropped it (step 10). Mirrors `sessionFace`.
+         */
+        @Volatile
+        private var sessionFaceRef: Rect? = null
+
+        /**
          * Mirror of `panel != null` (§8): true while an In-App Pop-up overlay window is up.
          * Page 1 consults this before honouring any mode-selection gesture, because
          * disable_floating_bubble.md already forbids interacting with the bubble in that state.
@@ -1954,6 +2110,22 @@ class FloatingBubbleService : Service() {
          * live. Page 2 shows this instead of the selected mode while [isScanSessionActive].
          */
         val activeSessionMode: ScanMode? get() = sessionModeRef
+
+        /**
+         * UC-02 "Detection status" of protection right now: Idle before the first double-click
+         * and once a session has ended, Detecting while a session is hunting for a result, and
+         * Result displayed once it has shown one — and only a deactivation clears that again,
+         * so pressing "Đóng" (A1) leaves it at Result displayed as the postcondition requires.
+         */
+        val detectionStatus: DetectionStatus get() = detectionStatusRef
+
+        /**
+         * UC-02 step 5 — the face the live session is holding, or null when it holds none.
+         *
+         * A defensive copy, so a caller reads a snapshot of the session's face instead of a
+         * handle on the rectangle the service may replace on the next face report.
+         */
+        val sessionFaceBounds: Rect? get() = sessionFaceRef?.let { Rect(it) }
 
         /** §8 — true while an In-App Pop-up overlay is on screen. */
         val isPopupOnScreen: Boolean get() = popupAttached

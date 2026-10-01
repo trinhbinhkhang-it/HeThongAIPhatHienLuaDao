@@ -497,6 +497,15 @@ class ScreenCaptureService : Service() {
         )
     }
 
+    /**
+     * Announces a change in "is a participant face on screen right now".
+     *
+     * The tracked [lastTrackedFaceRect] rides along so the bubble can honour UC-02 step 5
+     * ("the system saves the detected face to the current session") with real face data
+     * rather than a bare boolean. Only fires on a genuine change — the face moving within
+     * one identity is already smoothed by [smoothFaceRect] and does not re-broadcast, so a
+     * session saves the face once and keeps it until it ends.
+     */
     private fun setParticipantFaceDetected(detected: Boolean) {
         if (hasParticipantFace == detected) return
         hasParticipantFace = detected
@@ -504,6 +513,7 @@ class ScreenCaptureService : Service() {
             Intent(ACTION_FACE_DETECTION_CHANGED)
                 .setPackage(packageName)
                 .putExtra(EXTRA_FACE_DETECTED, detected)
+                .putExtra(EXTRA_FACE_BOUNDS, if (detected) lastTrackedFaceRect else null)
         )
     }
 
@@ -517,6 +527,9 @@ class ScreenCaptureService : Service() {
         const val EXTRA_STATUS = "status"
         const val ACTION_FACE_DETECTION_CHANGED = "com.voiceshield.ai.FACE_DETECTION_CHANGED"
         const val EXTRA_FACE_DETECTED = "face_detected"
+
+        /** Tracked face rectangle (`Rect`, Parcelable) on [ACTION_FACE_DETECTION_CHANGED]. */
+        const val EXTRA_FACE_BOUNDS = "face_bounds"
         private const val CHANNEL_ID = "screen_capture"
         private const val NOTIFICATION_ID = 1
         private const val TAG = "ScreenCapturePOC"
