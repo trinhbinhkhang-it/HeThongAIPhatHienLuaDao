@@ -92,37 +92,25 @@
                     android:id="@+id/mode_safe"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:buttonTint="@color/mint_500"
+                    android:buttonTint="@color/color_mode_button"
                     android:minHeight="@dimen/chip_height"
                     android:text="@string/mode_safe"
                     android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
-                    android:textColor="@color/text_primary" />
+                    android:textColor="@color/color_mode_label" />
 
                 <RadioButton
                     android:id="@+id/mode_warning"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:buttonTint="@color/mint_500"
+                    android:buttonTint="@color/color_mode_button"
                     android:minHeight="@dimen/chip_height"
                     android:text="@string/mode_warning"
                     android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
-                    android:textColor="@color/text_primary" />
+                    android:textColor="@color/color_mode_label" />
             </RadioGroup>
 
-            <!-- §6: shown only while a detection session has the mode locked. -->
-            <TextView
-                android:id="@+id/mode_locked_notice"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_md"
-                android:background="@drawable/bg_badge_terracotta"
-                android:padding="@dimen/space_md"
-                android:text="@string/settings_mode_locked"
-                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
-                android:textColor="@color/text_secondary"
-                android:visibility="gone" />
-
-            <!-- Save (primary pill) -->
+            <!-- Save (primary pill). The tint pair overrides the shared Pill style here only, so
+                 this button — and no other — greys out while §6 locks the page. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_save_config"
                 style="@style/Widget.SafeCallsCT.Button.Pill"
@@ -130,7 +118,8 @@
                 android:layout_height="@dimen/button_height_pill"
                 android:layout_marginTop="@dimen/space_xl"
                 android:text="@string/btn_save_config"
-                android:textColor="@color/text_on_primary" />
+                android:textColor="@color/color_pill_primary_label"
+                app:backgroundTint="@color/color_pill_primary" />
 
             <!-- Back (outline pill) -->
             <com.google.android.material.button.MaterialButton

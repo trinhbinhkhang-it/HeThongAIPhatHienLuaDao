@@ -114,12 +114,44 @@ class DesignTokenResourceTest {
             R.color.color_pill_soft,
             R.color.color_pill_outline,
             R.color.color_pill_danger,
+            R.color.color_pill_primary_label,
             R.color.color_nav_icon,
-            R.color.color_nav_label
+            R.color.color_nav_label,
+            R.color.color_mode_label,
+            R.color.color_mode_button
         )
         selectors.forEach { id ->
             val color = ContextCompat.getColor(context, id)
             assertNotEquals("Selector $id should resolve", 0, color)
+        }
+    }
+
+    /**
+     * developer_setting_page.md §6's lock has to be *visible*: disabling a control is not enough
+     * if its colours do not move with it. Each Page-2 selector must therefore resolve two
+     * different colours for the two enabled states — that is what makes the scan-mode page look
+     * locked and not merely behave that way.
+     */
+    @Test
+    fun scanModeSelectors_carryADistinctDisabledLook() {
+        val selectors = listOf(
+            R.color.color_mode_label,
+            R.color.color_mode_button,
+            R.color.color_pill_primary,
+            R.color.color_pill_primary_label
+        )
+        val enabledState = intArrayOf(android.R.attr.state_enabled)
+        val disabledState = intArrayOf(-android.R.attr.state_enabled)
+        selectors.forEach { id ->
+            val list = ContextCompat.getColorStateList(context, id)
+            assertNotNull("Selector $id should resolve", list)
+            val enabled = requireNotNull(list).getColorForState(enabledState, 0)
+            val disabled = list.getColorForState(disabledState, 0)
+            assertNotEquals(
+                "Selector $id looks identical enabled and disabled",
+                enabled,
+                disabled
+            )
         }
     }
 }

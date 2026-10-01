@@ -5,9 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
-import android.view.View
 import android.widget.RadioGroup
-import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -28,22 +26,38 @@ import com.google.android.material.button.MaterialButton
  * running the mode it copied at start-up is *locked*, so the page displays that session mode
  * and refuses edits until the bubble goes inactive again; a selection made here then applies
  * to the next session only.
+ *
+ * The lock is carried by the controls themselves rather than by a notice next to them: the two
+ * radios and "Lưu cấu hình" grey out and stop responding, and every one of those colours comes
+ * from a selector in res/color (color_mode_label, color_mode_button, color_pill_primary,
+ * color_pill_primary_label) so locked and unlocked cannot look alike. "Về trang chủ" stays live
+ * on purpose — the lock may not trap the user on the page.
+ *
+ * The page also follows the session *live*. The bubble is an overlay that floats over this
+ * activity, so a double tap here never reaches onStart(); FloatingBubbleService broadcasts
+ * [FloatingBubbleService.ACTION_SCAN_SESSION_CHANGED] for exactly that case, and it lands in
+ * [bindMode] alongside [ProtectionState.ACTION_MODE_CHANGED].
  */
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var modeGroup: RadioGroup
     private lateinit var saveButton: MaterialButton
-    private lateinit var lockedNotice: TextView
 
     /**
-     * Re-reads the mode whenever anything changes it — including §4's footer swipe and §5's
-     * edge snap, neither of which goes through this screen. Without it the page would keep
-     * showing a stale selection until the user reopened it.
+     * Re-reads the page whenever anything changes it — including §4's footer swipe and §5's
+     * edge snap, neither of which goes through this screen — and whenever the live session
+     * starts or ends, which is what greys the controls out and brings them back. Without it the
+     * page would keep showing a stale selection and a stale lock until the user reopened it.
+     *
+     * Both actions re-derive from the companion instead of trusting the broadcast extras, so a
+     * signal that never arrived is healed by the next onStart() just the same.
      */
-    private val modeChangedReceiver = object : BroadcastReceiver() {
+    private val pageStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action != ProtectionState.ACTION_MODE_CHANGED) return
-            bindMode()
+            when (intent.action) {
+                ProtectionState.ACTION_MODE_CHANGED,
+                FloatingBubbleService.ACTION_SCAN_SESSION_CHANGED -> bindMode()
+            }
         }
     }
 
@@ -53,7 +67,6 @@ class SettingsActivity : AppCompatActivity() {
 
         modeGroup = findViewById(R.id.mode_group)
         saveButton = findViewById(R.id.btn_save_config)
-        lockedNotice = findViewById(R.id.mode_locked_notice)
 
         bindMode()
 
@@ -65,8 +78,11 @@ class SettingsActivity : AppCompatActivity() {
         super.onStart()
         ContextCompat.registerReceiver(
             this,
-            modeChangedReceiver,
-            IntentFilter(ProtectionState.ACTION_MODE_CHANGED),
+            pageStateReceiver,
+            IntentFilter().apply {
+                addAction(ProtectionState.ACTION_MODE_CHANGED)
+                addAction(FloatingBubbleService.ACTION_SCAN_SESSION_CHANGED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         // A session may have started or ended while this page was backgrounded, and the lock
@@ -75,33 +91,29 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        unregisterReceiver(modeChangedReceiver)
+        unregisterReceiver(pageStateReceiver)
         super.onStop()
     }
 
     /**
-     * The mode this page shows: the running session's locked mode while the bubble is active,
-     * the persisted selection otherwise ([displayedScanMode]).
+     * Paints the radio group and the §6 lock state in one pass, from the single pure rule that
+     * owns both ([scanModePageState]).
      */
-    private fun displayedMode(): ScanMode = displayedScanMode(
-        sessionActive = FloatingBubbleService.isScanSessionActive,
-        sessionMode = FloatingBubbleService.activeSessionMode,
-        selectedMode = ProtectionState.getMode(this)
-    )
-
-    /** Paints the radio group and the §6 lock state in one pass. */
     private fun bindMode() {
-        val locked = isScanModeLocked(FloatingBubbleService.isScanSessionActive)
+        val state = scanModePageState(
+            sessionActive = FloatingBubbleService.isScanSessionActive,
+            sessionMode = FloatingBubbleService.activeSessionMode,
+            selectedMode = ProtectionState.getMode(this)
+        )
         modeGroup.check(
-            if (displayedMode() == ScanMode.SAFE) R.id.mode_safe else R.id.mode_warning
+            if (state.displayedMode == ScanMode.SAFE) R.id.mode_safe else R.id.mode_warning
         )
         // RadioGroup.setEnabled() does not reach its children, so each button is switched too.
-        modeGroup.isEnabled = !locked
+        modeGroup.isEnabled = state.controlsEnabled
         for (index in 0 until modeGroup.childCount) {
-            modeGroup.getChildAt(index).isEnabled = !locked
+            modeGroup.getChildAt(index).isEnabled = state.controlsEnabled
         }
-        saveButton.isEnabled = !locked
-        lockedNotice.visibility = if (locked) View.VISIBLE else View.GONE
+        saveButton.isEnabled = state.controlsEnabled
     }
 
     private fun saveConfig() {

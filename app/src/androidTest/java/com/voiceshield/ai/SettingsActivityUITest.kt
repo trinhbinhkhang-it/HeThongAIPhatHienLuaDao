@@ -12,7 +12,6 @@ import androidx.test.espresso.matcher.ViewMatchers.isNotChecked
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import org.hamcrest.CoreMatchers.not
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -98,10 +97,12 @@ class SettingsActivityUITest {
 
     /**
      * developer_setting_page.md §6: the page is locked *only* while a detection session runs.
-     * No bubble service exists in these tests, so this pins the unlocked half — the controls
-     * are editable, the notice is hidden, and the mode shown is the selected one rather than a
-     * session's. The locked half needs a live scan and is covered by the manual verification
-     * steps plus `ScanModeInteractionUnitTest`.
+     * No bubble service exists in these tests, so this pins the unlocked half — every control is
+     * editable, "Về trang chủ" stays reachable, and the mode shown is the selected one rather
+     * than a session's. The locked half needs a live scan and is covered by the manual
+     * verification steps, plus `ScanModeInteractionUnitTest` for the rule itself
+     * ([scanModePageState]) and `DesignTokenResourceTest` for the disabled *look* — which is the
+     * half this page gets wrong when the lock only disables without repainting.
      */
     @Test
     fun pageIsUnlockedWhenNoSessionIsRunning() {
@@ -110,18 +111,21 @@ class SettingsActivityUITest {
         val selected = ProtectionState.getMode(context)
         ActivityScenario.launch(SettingsActivity::class.java).use {
             onView(withId(R.id.mode_group)).check(matches(isEnabled()))
+            onView(withId(R.id.mode_safe)).check(matches(isEnabled()))
+            onView(withId(R.id.mode_warning)).check(matches(isEnabled()))
             onView(withId(R.id.btn_save_config)).check(matches(isEnabled()))
-            onView(withId(R.id.mode_locked_notice)).check(matches(not(isDisplayed())))
+            // The lock may never trap the user on the page.
+            onView(withId(R.id.btn_back_home)).check(matches(isEnabled()))
             val expectedId = if (selected == ScanMode.SAFE) R.id.mode_safe else R.id.mode_warning
             onView(withId(expectedId)).check(matches(isChecked()))
         }
         assertEquals(
             selected,
-            displayedScanMode(
-                FloatingBubbleService.isScanSessionActive,
-                FloatingBubbleService.activeSessionMode,
-                selected
-            )
+            scanModePageState(
+                sessionActive = FloatingBubbleService.isScanSessionActive,
+                sessionMode = FloatingBubbleService.activeSessionMode,
+                selectedMode = selected
+            ).displayedMode
         )
     }
 

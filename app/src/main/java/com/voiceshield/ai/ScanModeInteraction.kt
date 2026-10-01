@@ -377,6 +377,31 @@ fun displayedScanMode(
 ): ScanMode = if (sessionActive) (sessionMode ?: selectedMode) else selectedMode
 
 /**
+ * Everything Page 2 paints from the two §6 signals, decided in one place.
+ *
+ * The page has exactly two moving parts — which mode the radios show, and whether the radios
+ * and "Lưu cấu hình" accept input — and both are functions of the session, so they are derived
+ * together rather than by two call sites that could disagree. [controlsEnabled] is deliberately
+ * the negation of [isScanModeLocked] rather than a second rule: the lock has one definition and
+ * the page merely obeys it.
+ *
+ * Pure and Android-free, so the transition the page has to get right — locked the instant a
+ * session starts, unlocked the instant it ends — is pinned by JVM tests without Robolectric,
+ * an emulator, or a live bubble service.
+ */
+data class ScanModePageState(val displayedMode: ScanMode, val controlsEnabled: Boolean)
+
+/** Derives the single [ScanModePageState] Page 2 must paint for the given signals. */
+fun scanModePageState(
+    sessionActive: Boolean,
+    sessionMode: ScanMode?,
+    selectedMode: ScanMode
+): ScanModePageState = ScanModePageState(
+    displayedMode = displayedScanMode(sessionActive, sessionMode, selectedMode),
+    controlsEnabled = !isScanModeLocked(sessionActive)
+)
+
+/**
  * §6 "A new mode applies only to the next detection session": a running session keeps the
  * mode it was started with, whatever the user selects afterwards.
  *

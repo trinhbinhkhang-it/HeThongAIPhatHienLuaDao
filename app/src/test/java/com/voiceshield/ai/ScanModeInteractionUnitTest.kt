@@ -638,6 +638,94 @@ class ScanModeInteractionUnitTest {
     }
 
     /**
+     * The page's two decisions, taken together, for a live session: it shows the session's
+     * copied mode *and* hands the user nothing to edit. Either one alone is the half-fix that
+     * left the page looking editable while it silently refused the edit.
+     */
+    @Test
+    fun pageIsLockedAndShowsTheSessionModeWhileActive() {
+        ScanMode.values().forEach { session ->
+            ScanMode.values().forEach { selected ->
+                val state = scanModePageState(
+                    sessionActive = true,
+                    sessionMode = session,
+                    selectedMode = selected
+                )
+                assertEquals(
+                    "session=$session selected=$selected",
+                    session,
+                    state.displayedMode
+                )
+                assertFalse("session=$session selected=$selected", state.controlsEnabled)
+            }
+        }
+    }
+
+    /**
+     * The transition the page has to make the instant the second double-click arrives — which is
+     * the reported bug: the controls came back only after leaving and reopening the page.
+     */
+    @Test
+    fun pageUnlocksTheInstantTheSessionEnds() {
+        val running = scanModePageState(
+            sessionActive = true,
+            sessionMode = ScanMode.WARNING,
+            selectedMode = ScanMode.SAFE
+        )
+        assertEquals(ScanMode.WARNING, running.displayedMode)
+        assertFalse(running.controlsEnabled)
+
+        val ended = scanModePageState(
+            sessionActive = false,
+            sessionMode = null,
+            selectedMode = ScanMode.SAFE
+        )
+        assertEquals(ScanMode.SAFE, ended.displayedMode)
+        assertTrue(ended.controlsEnabled)
+    }
+
+    /** An unlocked page never shows a leftover session mode — it shows the real selection. */
+    @Test
+    fun aStaleSessionModeNeverLeaksIntoAnUnlockedPage() {
+        ScanMode.values().forEach { selected ->
+            val other = if (selected == ScanMode.SAFE) ScanMode.WARNING else ScanMode.SAFE
+            val state = scanModePageState(
+                sessionActive = false,
+                sessionMode = other,
+                selectedMode = selected
+            )
+            assertTrue(state.controlsEnabled)
+            assertEquals("a stale session mode is ignored", selected, state.displayedMode)
+        }
+    }
+
+    /**
+     * [scanModePageState] owns no rule of its own: it is exactly [displayedScanMode] plus the
+     * negation of [isScanModeLocked]. If either rule is ever changed, this fails rather than
+     * letting the page quietly drift away from the two rules the spec actually states.
+     */
+    @Test
+    fun pageStateAgreesWithTheTwoExistingRules() {
+        listOf(false, true).forEach { active ->
+            ScanMode.values().forEach { selected ->
+                listOf(null, ScanMode.SAFE, ScanMode.WARNING).forEach { session ->
+                    val state = scanModePageState(active, session, selected)
+                    assertEquals(
+                        "active=$active session=$session selected=$selected",
+                        displayedScanMode(active, session, selected),
+                        state.displayedMode
+                    )
+                    assertEquals(
+                        "active=$active session=$session selected=$selected",
+                        !isScanModeLocked(active),
+                        state.controlsEnabled
+                    )
+                }
+            }
+        }
+    }
+
+    /**
      * "Moving the bubble while it is active does not change the current session mode": §5's
      * edge selection is gated on the same [canSelectModeNow] that §4 uses, so an active bubble
      * refuses it too. The edge->mode mapping itself stays well defined either way.

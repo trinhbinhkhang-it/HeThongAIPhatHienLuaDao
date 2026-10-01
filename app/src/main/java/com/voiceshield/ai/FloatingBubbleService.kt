@@ -1505,17 +1505,33 @@ class FloatingBubbleService : Service() {
     private fun activeSessionMode(): ScanMode = sessionMode ?: ProtectionState.getMode(this)
 
     /**
-     * Mirrors the session state into the companion so Page 2 can display and lock against it.
+     * Mirrors the session state into the companion so Page 2 can display and lock against it,
+     * and announces the change so a Page 2 that is *already open* follows at once.
      *
      * Derived from *both* flags rather than from `scanning` alone. That matters for teardown:
      * onDestroy() clears [sessionMode] before it stops anything, and `stopProtection()` reaches
      * onDestroy() without ever calling stopScan() — so a service dying mid-scan would otherwise
      * leave [FloatingBubbleService.isScanSessionActive] true and Page 2 permanently locked
      * against a session that no longer exists.
+     *
+     * De-duplicated against [lastPublishedSession] and fire-and-forget inside a runCatching,
+     * exactly like [publishBubbleVisibility]: the teardown paths call this more than once, and
+     * reporting state must never be able to break the path that called it.
      */
     private fun publishSessionMode() {
-        sessionActiveRef = scanning && sessionMode != null
+        val active = scanning && sessionMode != null
+        sessionActiveRef = active
         sessionModeRef = sessionMode
+        if (lastPublishedSession == (active to sessionMode)) return
+        lastPublishedSession = active to sessionMode
+        runCatching {
+            sendBroadcast(
+                Intent(ACTION_SCAN_SESSION_CHANGED)
+                    .setPackage(packageName)
+                    .putExtra(EXTRA_SESSION_ACTIVE, active)
+                    .putExtra(EXTRA_SESSION_MODE, sessionMode?.name)
+            )
+        }
     }
 
     /**
@@ -2079,6 +2095,15 @@ class FloatingBubbleService : Service() {
         private var lastPublishedVisibility: Boolean? = null
 
         /**
+         * The last value handed to [ACTION_SCAN_SESSION_CHANGED], for the same reason as
+         * [lastPublishedVisibility]: teardown reaches publishSessionMode() more than once
+         * (stopScan() and then onDestroy()), and Page 2 must not be woken again for a state it
+         * has already painted.
+         */
+        @Volatile
+        private var lastPublishedSession: Pair<Boolean, ScanMode?>? = null
+
+        /**
          * The live service, held *weakly*. Lets the Home screen force the lock gate to
          * be re-derived before it reads [isBubbleVisible] — the definitive self-heal
          * for a process that was frozen with the screen off and therefore never saw
@@ -2188,6 +2213,29 @@ class FloatingBubbleService : Service() {
 
         /** Boolean extra on [ACTION_BUBBLE_VISIBILITY_CHANGED]. */
         const val EXTRA_BUBBLE_VISIBLE = "bubble_visible"
+
+        /**
+         * Sent every time a detection session starts or ends, i.e. every time the §6 mode lock
+         * moves.
+         *
+         * The companion flags ([isScanSessionActive], [activeSessionMode]) already let Page 2
+         * *read* the lock, but reading only happens in onStart()/onCreate — and the bubble is an
+         * overlay that floats *over* Page 2, so a double tap there never reaches that page's
+         * lifecycle. This is the missing signal: Page 2 stays open and still greys the controls
+         * out the moment the session begins, and un-greys them the moment it ends.
+         */
+        const val ACTION_SCAN_SESSION_CHANGED =
+            "com.voiceshield.ai.SCAN_SESSION_CHANGED"
+
+        /** Boolean extra on [ACTION_SCAN_SESSION_CHANGED]: whether a session is running. */
+        const val EXTRA_SESSION_ACTIVE = "session_active"
+
+        /**
+         * [ScanMode]-name extra on [ACTION_SCAN_SESSION_CHANGED], absent while no session is
+         * running. Informational only — listeners re-derive from [activeSessionMode] rather than
+         * trusting it.
+         */
+        const val EXTRA_SESSION_MODE = "session_mode"
 
         private const val RIPPLE_DURATION_MS = 1_300L
         private const val RIPPLE_DURATION_FAST_MS = 700L

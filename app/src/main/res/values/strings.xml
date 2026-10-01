@@ -98,7 +98,6 @@
 
     <!-- ===== Scan-mode change feedback (§7) ===== -->
     <string name="mode_changed_feedback">Chế độ quét: %1$s</string>
-    <string name="settings_mode_locked">Bubble đang hoạt động nên chế độ quét của phiên hiện tại đã được khoá. Chế độ mới chỉ áp dụng cho phiên quét kế tiếp, sau khi bubble ngừng hoạt động.</string>
 
     <!-- ===== Bubble scan popups ===== -->
     <string name="popup_safe_message">Hệ thống đánh giá cuộc gọi An Toàn</string>
