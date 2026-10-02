@@ -140,10 +140,11 @@ fun popupCloseOutcome(
  *
  * `cancelResultSequence` is unconditional in the gated case: pending model updates have to be
  * retracted and the risk shown on the bubble cleared whether or not one had already fired,
- * because a risk score on screen is itself output the gate withholds. `resultDisplayed`
- * therefore only decides the status in the *ungated* case — with the gate on the status always
- * walks back to [DetectionStatus.DETECTING], since a session that can no longer see a face is
- * detecting again by definition, even if the user had already seen a result.
+ * because a risk score on screen is itself output the gate withholds.
+ *
+ * There is deliberately no flag for the In-App Pop-up panel. A result the user has already been
+ * shown is not *pending* output, and yanking the card away mid-read would take the "Đóng" button
+ * with it — the only way the user has to dismiss it. A8 withholds what has not happened yet.
  */
 data class FaceLostOutcome(
     val retractTimer: Boolean,
@@ -158,27 +159,32 @@ data class FaceLostOutcome(
  *
  * With the gate OFF (the default) nothing is retracted: the documented behaviour has no notion
  * of a required face, so losing one must never stop a scan that was not waiting for it. With it
- * ON, [shouldArmScanTimer] has to be satisfied again by a *new* face before the session may
- * produce anything — which is why `rePark` is part of the outcome rather than the session being
- * left armed against a screen that no longer shows one.
+ * ON, every output still pending is withdrawn and [shouldArmScanTimer] has to be satisfied again
+ * by a *new* face before the session may produce another one — which is why `rePark` is part of
+ * the outcome rather than the session being left armed against a screen that no longer shows one.
+ *
+ * [detectionStatus] is the plain derivation rather than a special case, and that is deliberate.
+ * Once a result has been shown the session stays "Result displayed": A1 already established that
+ * closing the pop-up is not a deactivation, and [detectionStatusOf] derives the status from two
+ * flags precisely so no third one can drift out of step with them. Forcing Detecting here would
+ * report "Detecting" over a result card that is still on screen — the drift that derivation
+ * exists to prevent. A8 withholds output the screen does not justify; it does not rewrite what
+ * the session has already reported.
  */
 fun faceLostOutcome(
     scanning: Boolean,
     faceGateEnabled: Boolean,
     resultDisplayed: Boolean
-): FaceLostOutcome = when {
-    scanning && faceGateEnabled -> FaceLostOutcome(
-        retractTimer = true,
-        cancelResultSequence = true,
-        dropSavedFace = true,
-        rePark = true,
-        detectionStatus = DetectionStatus.DETECTING
-    )
-    else -> FaceLostOutcome(
-        retractTimer = false,
-        cancelResultSequence = false,
-        dropSavedFace = false,
-        rePark = false,
+): FaceLostOutcome {
+    // The gate applies only to a running session with the option on. `rePark` doubles as the
+    // "the gate applied" discriminator for the caller, which is why the four booleans move
+    // together.
+    val gated = scanning && faceGateEnabled
+    return FaceLostOutcome(
+        retractTimer = gated,
+        cancelResultSequence = gated,
+        dropSavedFace = gated,
+        rePark = gated,
         detectionStatus = detectionStatusOf(scanning, resultDisplayed)
     )
 }
@@ -476,10 +482,11 @@ class FloatingBubbleService : Service() {
     private var rippleDuration = RIPPLE_DURATION_MS
 
     /**
-     * True while a face-gated scan is parked waiting for the first real human face to
-     * appear on screen. Set from the hidden "Chế độ nhận diện khuôn mặt" developer
-     * option: while it holds, the random popup timer is *not* armed, so no warning can
-     * fire. Cleared the moment ScreenCaptureService reports a face.
+     * True while a face-gated scan is waiting for a real human face to be on screen. Set from the
+     * hidden "Chế độ nhận diện khuôn mặt" developer option: while it holds, the random popup timer
+     * is *not* armed, so no warning can fire. Cleared the moment ScreenCaptureService reports a
+     * face, and set again if that face later leaves the screen (UC-02 A8) — the gate is a
+     * condition on the whole session, not an admission test at the start of it.
      */
     private var awaitingFace = false
 
@@ -513,9 +520,11 @@ class FloatingBubbleService : Service() {
      *
      * Filled from the tracked rectangle [ScreenCaptureService] puts on its face-detection
      * broadcast, and only while a scan is running (an idle bubble saves nothing, A3). It
-     * stays for as long as the session does and is dropped exactly when the session ends —
+     * stays for as long as the session does and is dropped when the session ends —
      * [stopScan] for a second double-click (step 10) and [onDestroy] for the teardown paths
-     * that never reach [stopScan] (A2, A6, A7). Null means "no face in this session".
+     * that never reach [stopScan] (A2, A6, A7) — and, since A8, the moment the face leaves the
+     * screen, because the saved face is a copy of what the screen is showing. Null means "no
+     * face in this session".
      */
     private var sessionFace: Rect? = null
 
@@ -621,23 +630,42 @@ class FloatingBubbleService : Service() {
      * what this session reports.
      */
     private val scanRunnable = Runnable {
-        if (!scanning) return@Runnable
-        // Defence in depth for the face gate: a scan still parked waiting for a real
-        // face must never produce a result, even if something armed the timer early.
-        if (awaitingFace || !scanTimerArmed) return@Runnable
-        scanTimerArmed = false
-        when (activeSessionMode()) {
-            ScanMode.SAFE -> showSafePopup()
-            ScanMode.WARNING -> {
-                showWarningPopup()
-                showHighRiskNotification()
+        when (scanFireDecision(
+            scanning = scanning,
+            faceGateEnabled = ProtectionState.isFaceGateEnabled(this@FloatingBubbleService),
+            faceDetected = participantFaceDetected,
+            awaitingFace = awaitingFace,
+            scanTimerArmed = scanTimerArmed
+        )) {
+            // The scan was stopped, or this window was already superseded: nothing to do.
+            ScanFireDecision.IGNORE -> Unit
+
+            // The face that armed this window left the screen before it elapsed. Re-park
+            // instead of producing the popup — and, in Warning Mode, the notification that
+            // rides the same timer — that the gate exists to withhold. This is the state a
+            // gated scan starts in, so only a new face report may arm the window again.
+            ScanFireDecision.RE_PARK -> {
+                awaitingFace = true
+                scanTimerArmed = false
+                render()
+            }
+
+            ScanFireDecision.SHOW_POPUP -> {
+                scanTimerArmed = false
+                when (activeSessionMode()) {
+                    ScanMode.SAFE -> showSafePopup()
+                    ScanMode.WARNING -> {
+                        showWarningPopup()
+                        showHighRiskNotification()
+                    }
+                }
+                // UC-02 step 7: the session has now produced its result, so the Detection status
+                // moves from Detecting to "Result displayed" and stays there until deactivation —
+                // closing the pop-up (A1) must not walk it back.
+                resultDisplayed = true
+                publishDetectionStatus()
             }
         }
-        // UC-02 step 7: the session has now produced its result, so the Detection status
-        // moves from Detecting to "Result displayed" and stays there until deactivation —
-        // closing the pop-up (A1) must not walk it back.
-        resultDisplayed = true
-        publishDetectionStatus()
     }
 
     // NOTE: there is deliberately no ACTION_MODE_CHANGED receiver here any more. It used to
@@ -693,6 +721,11 @@ class FloatingBubbleService : Service() {
             // Cache the rectangle beside the flag, under the same "remember it even while idle"
             // rule: a session started after this report has no new broadcast coming.
             lastReportedFaceBounds = if (detected) bounds ?: lastReportedFaceBounds else null
+            // UC-02 A8: with the gate on, a face is a condition that holds for the *whole*
+            // session, not an admission ticket for its start, so losing it withdraws everything
+            // the session still had pending. The report is consumed there — the branches below
+            // only ever act on a face that really is on screen.
+            if (!detected && withdrawPendingOutputsForLostFace()) return
             // "Chế độ nhận diện khuôn mặt": this is the event a parked scan waits for.
             releaseFaceGateIfSatisfied()
             // Idle bubble -> ignored. Only a double-tap scan consumes results.
@@ -726,6 +759,45 @@ class FloatingBubbleService : Service() {
             @Suppress("DEPRECATION")
             getParcelableExtra(ScreenCaptureService.EXTRA_FACE_BOUNDS)
         }
+
+    /**
+     * UC-02 A8 — a face that leaves the screen while the hidden "Chế độ nhận diện khuôn mặt"
+     * gate is on withdraws every output the session still had pending, without ending the
+     * session: the popup window is retracted before it elapses, the model-result sequence is
+     * cancelled (which also clears the risk painted on the bubble), the saved face goes, and the
+     * scan returns to waiting for a face. Only a new face report may arm it again.
+     *
+     * Deliberately does *not* close the In-App Pop-up. A result the user has already been shown
+     * is not pending output, and removing the card would take its "Đóng" button — the only way
+     * the user has to dismiss it — with it; see [FaceLostOutcome] for that line of reasoning.
+     *
+     * @return true when the report was consumed as a face-lost event, so the caller skips the
+     *   branches that only apply to a face that really is there.
+     */
+    private fun withdrawPendingOutputsForLostFace(): Boolean {
+        val lost = faceLostOutcome(
+            scanning = scanning,
+            faceGateEnabled = ProtectionState.isFaceGateEnabled(this),
+            resultDisplayed = resultDisplayed
+        )
+        // `rePark` is false when the gate does not apply: an ungated or already-stopped session
+        // has nothing pending, and must behave exactly as it did before A8.
+        if (!lost.rePark) return false
+        if (lost.retractTimer) {
+            handler.removeCallbacks(scanRunnable)
+            scanTimerArmed = false
+        }
+        // Clears the pending model updates and the risk score they had painted. `current` is
+        // reset here but not repainted, which is why render() comes last.
+        if (lost.cancelResultSequence) cancelResultSequence()
+        if (lost.dropSavedFace) sessionFace = null
+        awaitingFace = true
+        // Republishes the dropped face to the companion as well as the (unchanged) status: A8
+        // removes the faces from the session, and the mirror has to say so.
+        publishDetectionStatus()
+        render()
+        return true
+    }
 
     /**
      * Component 6 — Lifecycle Rules (enable_floating_bubble.md): "When the device is

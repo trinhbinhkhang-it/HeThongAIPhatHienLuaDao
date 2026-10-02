@@ -324,23 +324,50 @@ class DetectionSessionUnitTest {
     }
 
     /**
-     * A face lost *after* the result was shown is still a face lost: the session may not keep
-     * displaying a result produced for a screen that no longer shows one. This is the case the
-     * two-flag status rule cannot express on its own, which is why A8 overrides it.
+     * The withdrawal itself does not depend on whether a result had already been shown: it is
+     * about output that has *not* happened yet. Only the status — the derivation, not the
+     * withdrawal — follows `resultDisplayed`.
      */
     @Test
-    fun gateOn_faceLostAfterTheResultStillReturnsToDetecting() {
+    fun gateOn_withdrawsTheSameOutputWhetherOrNotAResultWasShown() {
+        listOf(false, true).forEach { resultDisplayed ->
+            val lost = faceLostOutcome(
+                scanning = true,
+                faceGateEnabled = true,
+                resultDisplayed = resultDisplayed
+            )
+            assertTrue("resultDisplayed=$resultDisplayed", lost.retractTimer)
+            assertTrue(lost.cancelResultSequence)
+            assertTrue(lost.dropSavedFace)
+            assertTrue(lost.rePark)
+        }
+    }
+
+    /**
+     * A8 must not rewrite what the session already reported. Once a result has been shown the
+     * status stays "Result displayed" — the same postcondition A1 pinned, and the only answer
+     * that keeps [detectionStatusOf] honest, since there is no third flag that could say whether
+     * the pop-up panel is still on screen. Reporting Detecting here would contradict a card the
+     * user is still looking at.
+     */
+    @Test
+    fun gateOn_faceLostAfterTheResultLeavesTheStatusAtResultDisplayed() {
         assertEquals(
-            "the bare status rule would still say Result displayed",
             DetectionStatus.RESULT_DISPLAYED,
-            detectionStatusOf(scanning = true, resultDisplayed = true)
+            faceLostOutcome(
+                scanning = true,
+                faceGateEnabled = true,
+                resultDisplayed = true
+            ).detectionStatus
         )
+        // …while a session that had not shown its result yet is simply still detecting, which is
+        // where it already was.
         assertEquals(
             DetectionStatus.DETECTING,
             faceLostOutcome(
                 scanning = true,
                 faceGateEnabled = true,
-                resultDisplayed = true
+                resultDisplayed = false
             ).detectionStatus
         )
     }
