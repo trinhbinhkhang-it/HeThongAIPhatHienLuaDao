@@ -15,9 +15,12 @@ import org.junit.Test
  *  - ON — the scan waits until a human face really appears on screen, and only then
  *    starts the same random window. No face, no warning, ever.
  *
- * [shouldArmScanTimer] is the whole rule, kept as a top-level Android-free function in
- * the same convention as [scanDelayMs] and [shouldApplyFaceDetection] so it is testable
- * on the local JVM without Robolectric.
+ * [shouldArmScanTimer] is the rule for *whether* the window may be armed at all, and it has two
+ * siblings that cover the two moments a single admission test cannot: [sessionStartFaceDecision]
+ * (may the window be armed at the session boundary, where the cached flag may describe a screen
+ * the user has left?) and [scanFireDecision] (is the face still there when the window elapses?).
+ * All three are kept as top-level Android-free functions in the same convention as [scanDelayMs]
+ * and [shouldApplyFaceDetection] so they are testable on the local JVM without Robolectric.
  *
  * The tests below also guard the *existing* behaviour, which the option must not change:
  * with the gate off nothing about the scan timing is different, and the separate
@@ -135,5 +138,181 @@ class FaceGateUnitTest {
         assertFalse("popup must not fire", timerWouldFire)
         assertFalse("notification rides the same timer, so it must not fire either",
             timerWouldFire)
+    }
+
+    // ── The session boundary: the gate asks the screen again (UC-02 A8) ───────
+
+    /**
+     * The regression guard for the default configuration. A gate-off double-tap must still arm
+     * the window immediately, and in particular must never *wait* for a report — there is no
+     * report coming for a bubble nobody asked.
+     */
+    @Test
+    fun gateOff_startsTheWindowWithoutWaitingForAnyReport() {
+        listOf(true, false, null).forEach { fresh ->
+            assertEquals(
+                "fresh=$fresh — a gate-off scan never waits",
+                SessionStartFaceDecision.ARM_NOW,
+                sessionStartFaceDecision(faceGateEnabled = false, freshFacePresent = fresh)
+            )
+        }
+    }
+
+    @Test
+    fun gateOn_startsTheWindowOnlyOnAFreshAnswerThatAFaceIsThere() {
+        assertEquals(
+            SessionStartFaceDecision.ARM_NOW,
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = true)
+        )
+        assertEquals(
+            SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT,
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = false)
+        )
+    }
+
+    /**
+     * The whole reason the answer is nullable: a stale cache is not an answer. Arming on "the
+     * capture service has not replied" is precisely the race where a face seen *before* the
+     * session started released its window, so the unanswered case has to behave exactly like a
+     * reported absence.
+     */
+    @Test
+    fun gateOn_treatsAnUnansweredQuestionAsNoFace() {
+        assertEquals(
+            "no answer yet must park, exactly like a reported absence",
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = false),
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = null)
+        )
+        assertEquals(
+            SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT,
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = null)
+        )
+    }
+
+    /** Exhaustive: the rule is a pure function of exactly this boolean and this tri-state. */
+    @Test
+    fun sessionBoundaryTruthTableIsComplete() {
+        val expected = mapOf(
+            (false to true) to SessionStartFaceDecision.ARM_NOW,
+            (false to false) to SessionStartFaceDecision.ARM_NOW,
+            (false to null) to SessionStartFaceDecision.ARM_NOW,
+            (true to true) to SessionStartFaceDecision.ARM_NOW,
+            (true to false) to SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT,
+            (true to null) to SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT
+        )
+        expected.forEach { (input, want) ->
+            assertEquals(
+                "gate=${input.first} fresh=${input.second}",
+                want,
+                sessionStartFaceDecision(input.first, input.second)
+            )
+        }
+    }
+
+    // ── Fire time: the gate is re-read, not trusted (UC-02 A8) ───────────────
+
+    /**
+     * The ghost this rule exists for: the window was armed while a face was on screen, the user
+     * left the screen, and now the timer fires with no face anywhere. It must re-park rather
+     * than show a popup the gate was supposed to withhold.
+     */
+    @Test
+    fun gateOn_reParksWhenTheFaceIsGoneByFireTime() {
+        assertEquals(
+            ScanFireDecision.RE_PARK,
+            scanFireDecision(
+                scanning = true,
+                faceGateEnabled = true,
+                faceDetected = false,
+                awaitingFace = false,
+                scanTimerArmed = true
+            )
+        )
+    }
+
+    /** The honest case: the face is still there, so the window produces its result. */
+    @Test
+    fun gateOn_showsThePopupWhenTheFaceIsStillThere() {
+        assertEquals(
+            ScanFireDecision.SHOW_POPUP,
+            scanFireDecision(
+                scanning = true,
+                faceGateEnabled = true,
+                faceDetected = true,
+                awaitingFace = false,
+                scanTimerArmed = true
+            )
+        )
+    }
+
+    /** Regression guard: the default configuration fires with no face, exactly as documented. */
+    @Test
+    fun gateOff_showsThePopupEvenWithNoFace() {
+        assertEquals(
+            ScanFireDecision.SHOW_POPUP,
+            scanFireDecision(
+                scanning = true,
+                faceGateEnabled = false,
+                faceDetected = false,
+                awaitingFace = false,
+                scanTimerArmed = true
+            )
+        )
+    }
+
+    /**
+     * The two pre-existing guards survive the rewrite, and they are checked *before* the gate so
+     * the face cannot make a stopped or withdrawn scan produce anything.
+     */
+    @Test
+    fun stoppedAndWithdrawnScansStaySilentWhateverTheScreenShows() {
+        listOf(true, false).forEach { face ->
+            assertEquals(
+                "scanning=false face=$face",
+                ScanFireDecision.IGNORE,
+                scanFireDecision(
+                    scanning = false,
+                    faceGateEnabled = false,
+                    faceDetected = face,
+                    awaitingFace = false,
+                    scanTimerArmed = true
+                )
+            )
+            assertEquals(
+                "awaitingFace=true face=$face",
+                ScanFireDecision.IGNORE,
+                scanFireDecision(
+                    scanning = true,
+                    faceGateEnabled = true,
+                    faceDetected = face,
+                    awaitingFace = true,
+                    scanTimerArmed = false
+                )
+            )
+            assertEquals(
+                "scanTimerArmed=false face=$face",
+                ScanFireDecision.IGNORE,
+                scanFireDecision(
+                    scanning = true,
+                    faceGateEnabled = true,
+                    faceDetected = face,
+                    awaitingFace = false,
+                    scanTimerArmed = false
+                )
+            )
+        }
+    }
+
+    /** The three decisions are mutually exclusive outcomes, not a ranking of one action. */
+    @Test
+    fun theFireDecisionsAreDistinctOutcomes() {
+        assertEquals(
+            listOf(
+                ScanFireDecision.SHOW_POPUP,
+                ScanFireDecision.RE_PARK,
+                ScanFireDecision.IGNORE
+            ),
+            ScanFireDecision.values().toList()
+        )
     }
 }

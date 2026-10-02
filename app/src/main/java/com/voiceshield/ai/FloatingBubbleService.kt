@@ -128,6 +128,62 @@ fun popupCloseOutcome(
 )
 
 /**
+ * The session state UC-02 A8 leaves behind when the tracked face disappears from the screen
+ * while the session is still running.
+ *
+ * The hidden "Chế độ nhận diện khuôn mặt" gate is not a one-off admission test at the start
+ * of a scan: the promise it makes — no face, no warning — has to hold for the whole session,
+ * so the moment the screen stops showing a face the session must stop producing output. The
+ * rule is written as flags instead of being performed on the service's own fields, so it stays
+ * JVM-testable without Robolectric — the same convention as [PopupCloseOutcome] and
+ * [detectionStatusOf].
+ *
+ * `cancelResultSequence` is unconditional in the gated case: pending model updates have to be
+ * retracted and the risk shown on the bubble cleared whether or not one had already fired,
+ * because a risk score on screen is itself output the gate withholds. `resultDisplayed`
+ * therefore only decides the status in the *ungated* case — with the gate on the status always
+ * walks back to [DetectionStatus.DETECTING], since a session that can no longer see a face is
+ * detecting again by definition, even if the user had already seen a result.
+ */
+data class FaceLostOutcome(
+    val retractTimer: Boolean,
+    val cancelResultSequence: Boolean,
+    val dropSavedFace: Boolean,
+    val rePark: Boolean,
+    val detectionStatus: DetectionStatus
+)
+
+/**
+ * Derives the [FaceLostOutcome] for a face that disappeared while a session might be running.
+ *
+ * With the gate OFF (the default) nothing is retracted: the documented behaviour has no notion
+ * of a required face, so losing one must never stop a scan that was not waiting for it. With it
+ * ON, [shouldArmScanTimer] has to be satisfied again by a *new* face before the session may
+ * produce anything — which is why `rePark` is part of the outcome rather than the session being
+ * left armed against a screen that no longer shows one.
+ */
+fun faceLostOutcome(
+    scanning: Boolean,
+    faceGateEnabled: Boolean,
+    resultDisplayed: Boolean
+): FaceLostOutcome = when {
+    scanning && faceGateEnabled -> FaceLostOutcome(
+        retractTimer = true,
+        cancelResultSequence = true,
+        dropSavedFace = true,
+        rePark = true,
+        detectionStatus = DetectionStatus.DETECTING
+    )
+    else -> FaceLostOutcome(
+        retractTimer = false,
+        cancelResultSequence = false,
+        dropSavedFace = false,
+        rePark = false,
+        detectionStatus = detectionStatusOf(scanning, resultDisplayed)
+    )
+}
+
+/**
  * Pure geometry gate for the drag-to-dismiss gesture
  * (disable_floating_bubble.md): the X target counts as "hit" once the bubble
  * centre lands within [thresholdPx] of the target centre.
@@ -265,6 +321,69 @@ fun canVerifyWindowAttachment(attachSettled: Boolean, viewInitialized: Boolean):
 fun shouldArmScanTimer(faceGateEnabled: Boolean, faceDetected: Boolean): Boolean =
     !faceGateEnabled || faceDetected
 
+/**
+ * Whether a double-tap scan may start its random popup window straight away, or has to wait for
+ * ScreenCaptureService to confirm that a face really is on screen *now*.
+ *
+ * [shouldArmScanTimer] answers "may the window be armed at all?" from whatever the bubble
+ * already believes. This answers the different question a session boundary asks — "is that
+ * belief about the screen still current?" The bubble's cached face flag is written by
+ * broadcasts that ScreenCaptureService only sends on a *change*, so at the instant a scan
+ * starts it may well describe a screen the user has already left. Hence the nullable answer:
+ * null means the capture service has not reported yet, and an unanswered question must park,
+ * not arm.
+ */
+enum class SessionStartFaceDecision { ARM_NOW, PARK_UNTIL_FRESH_REPORT }
+
+/**
+ * Pure rule for the session-boundary half of the face gate.
+ *
+ *  - gate OFF -> the documented default: arm immediately, no face required
+ *    (enable_floating_bubble.md).
+ *  - gate ON  -> only a freshly reported face releases the window. "No answer yet" parks for
+ *    the same reason "no face" does, because arming on an unanswered question is exactly how a
+ *    stale face reaches a brand-new session.
+ *
+ * Top-level and Android-free, like every other rule here, so both halves of the gate are
+ * JVM-unit-testable.
+ */
+fun sessionStartFaceDecision(
+    faceGateEnabled: Boolean,
+    freshFacePresent: Boolean?
+): SessionStartFaceDecision = when {
+    !faceGateEnabled -> SessionStartFaceDecision.ARM_NOW
+    freshFacePresent == true -> SessionStartFaceDecision.ARM_NOW
+    else -> SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT
+}
+
+/** What the pending popup timer must do at the instant it fires — see [scanFireDecision]. */
+enum class ScanFireDecision { SHOW_POPUP, RE_PARK, IGNORE }
+
+/**
+ * Pure rule for the instant the random popup timer fires.
+ *
+ * The face gate is read *again* here instead of being trusted from the moment the timer was
+ * armed. `Handler.postDelayed` guarantees nothing about the screen in between: a face can be
+ * gone by the time the window elapses, and a scan that fires anyway produces exactly the
+ * popup — and, in Warning Mode, the notification that rides the same timer — the gate exists
+ * to suppress. `RE_PARK` returns the scan to the state a gated scan starts in; only a new face
+ * report may arm it again.
+ *
+ * `IGNORE` is the pre-existing guard, kept verbatim: a stopped scan and a scan whose timer was
+ * withdrawn by a later decision must both be silent.
+ */
+fun scanFireDecision(
+    scanning: Boolean,
+    faceGateEnabled: Boolean,
+    faceDetected: Boolean,
+    awaitingFace: Boolean,
+    scanTimerArmed: Boolean
+): ScanFireDecision = when {
+    !scanning -> ScanFireDecision.IGNORE
+    awaitingFace || !scanTimerArmed -> ScanFireDecision.IGNORE
+    faceGateEnabled && !faceDetected -> ScanFireDecision.RE_PARK
+    else -> ScanFireDecision.SHOW_POPUP
+}
 
 /**
  * Pure rule for the Home status card: the app may only claim "Đang bảo vệ" while a

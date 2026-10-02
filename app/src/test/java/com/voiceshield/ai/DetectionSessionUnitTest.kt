@@ -21,8 +21,14 @@ import org.junit.Test
  *  - **Closing the pop-up** — step 8 says "Đóng" discards the face the session saved *and*
  *    leaves the session standing, so the bubble stays active, the mode stays locked and the
  *    status stays "Result displayed". [popupCloseOutcome] is that whole postcondition.
+ *  - **Losing the face mid-session** — with the hidden "Chế độ nhận diện khuôn mặt" gate on the
+ *    face is not an admission ticket but a condition that holds for the whole session, so a face
+ *    that leaves the screen withdraws the pending pop-up, retracts the model-result sequence and
+ *    clears the saved face without ending the session. [faceLostOutcome] is that whole
+ *    transition, and it is the counterpart of [sessionStartFaceDecision] in
+ *    [FaceGateUnitTest]: one rule for the session boundary, one for the rest of the session.
  *
- * All three are top-level Android-free functions in FloatingBubbleService.kt, in the same
+ * All four are top-level Android-free functions in FloatingBubbleService.kt, in the same
  * convention as [shouldArmScanTimer] (see [FaceGateUnitTest]) and [scanDelayMs].
  */
 class DetectionSessionUnitTest {
@@ -145,10 +151,23 @@ class DetectionSessionUnitTest {
         assertFalse(shouldApplyFaceDetection(scanning = false, faceDetected = false))
     }
 
-    /** Step 5: a face reported during the run *is* saved into the session. */
+    /**
+     * Step 5: a face reported during the run *is* saved into the session — and, since A8, only
+     * while it is still on screen. The two halves are the same rule read forwards and backwards:
+     * the save gate is satisfied by a face that is there, and [faceLostOutcome] drops the saved
+     * face the moment one is not.
+     */
     @Test
     fun aFaceSeenByARunningSessionIsSaved() {
         assertTrue(shouldApplyFaceDetection(scanning = true, faceDetected = true))
+        assertTrue(
+            "…and it is dropped again as soon as the screen no longer shows it",
+            faceLostOutcome(
+                scanning = true,
+                faceGateEnabled = true,
+                resultDisplayed = false
+            ).dropSavedFace
+        )
     }
 
     /**
@@ -280,5 +299,127 @@ class DetectionSessionUnitTest {
         assertFalse(idle.modeStillLocked)
         assertEquals(DetectionStatus.IDLE, idle.detectionStatus)
         assertFalse(idle.faceStillSaved)
+    }
+
+    // ── Losing the face mid-session (A8, gate on) ─────────────────────────────
+
+    /**
+     * The A8 headline: with the gate on, a face that leaves the screen withdraws *every* output
+     * the session had pending, not just the pop-up. The risk the model-result sequence paints on
+     * the bubble goes too — a score on screen is the same kind of warning the gate withholds —
+     * and the status walks back to Detecting.
+     */
+    @Test
+    fun gateOn_faceLostMidSessionWithdrawsEveryOutput() {
+        val lost = faceLostOutcome(
+            scanning = true,
+            faceGateEnabled = true,
+            resultDisplayed = false
+        )
+        assertTrue("the pending pop-up window is withdrawn", lost.retractTimer)
+        assertTrue("pending model updates are retracted", lost.cancelResultSequence)
+        assertTrue("the saved face goes with them", lost.dropSavedFace)
+        assertTrue("only a new face may arm the window again", lost.rePark)
+        assertEquals(DetectionStatus.DETECTING, lost.detectionStatus)
+    }
+
+    /**
+     * A face lost *after* the result was shown is still a face lost: the session may not keep
+     * displaying a result produced for a screen that no longer shows one. This is the case the
+     * two-flag status rule cannot express on its own, which is why A8 overrides it.
+     */
+    @Test
+    fun gateOn_faceLostAfterTheResultStillReturnsToDetecting() {
+        assertEquals(
+            "the bare status rule would still say Result displayed",
+            DetectionStatus.RESULT_DISPLAYED,
+            detectionStatusOf(scanning = true, resultDisplayed = true)
+        )
+        assertEquals(
+            DetectionStatus.DETECTING,
+            faceLostOutcome(
+                scanning = true,
+                faceGateEnabled = true,
+                resultDisplayed = true
+            ).detectionStatus
+        )
+    }
+
+    /**
+     * The default configuration has no notion of a required face, so losing one must change
+     * nothing at all — including leaving a "Result displayed" status exactly where it was.
+     */
+    @Test
+    fun gateOff_faceLostMidSessionChangesNothing() {
+        listOf(false, true).forEach { resultDisplayed ->
+            val lost = faceLostOutcome(
+                scanning = true,
+                faceGateEnabled = false,
+                resultDisplayed = resultDisplayed
+            )
+            assertEquals(
+                FaceLostOutcome(
+                    retractTimer = false,
+                    cancelResultSequence = false,
+                    dropSavedFace = false,
+                    rePark = false,
+                    detectionStatus = detectionStatusOf(scanning = true, resultDisplayed)
+                ),
+                lost
+            )
+        }
+    }
+
+    /**
+     * Step 9 / A2 / A6 / A7: an inactive bubble has nothing to withdraw, so a face report that
+     * arrives after the session ended is inert — otherwise a stray broadcast could resurrect
+     * "Detecting" on an idle bubble.
+     */
+    @Test
+    fun anInactiveSessionHasNoOutputToWithdraw() {
+        val lost = faceLostOutcome(
+            scanning = false,
+            faceGateEnabled = true,
+            resultDisplayed = false
+        )
+        assertFalse(lost.retractTimer)
+        assertFalse(lost.cancelResultSequence)
+        assertFalse(lost.dropSavedFace)
+        assertFalse(lost.rePark)
+        assertEquals(DetectionStatus.IDLE, lost.detectionStatus)
+    }
+
+    /**
+     * The release path has to survive a re-park, which is the one way A8 could deadlock: the
+     * capture service only broadcasts on a *change* of face state, so a scan parked at its
+     * boundary must be released by a genuinely new face report rather than by the cached flag it
+     * parked on. The three rules below are exactly that handshake — parked, still parked with no
+     * new report, then armed the moment one arrives.
+     */
+    @Test
+    fun aParkedSessionWaitsForANewFaceReportNotTheCachedOne() {
+        // Parked at the boundary: gate on, and the only answer on record is "no face".
+        assertFalse(shouldArmScanTimer(faceGateEnabled = true, faceDetected = false))
+        assertEquals(
+            SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT,
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = false)
+        )
+        // A report that merely repeats the parked state must not release it.
+        assertEquals(
+            ScanFireDecision.IGNORE,
+            scanFireDecision(
+                scanning = true,
+                faceGateEnabled = true,
+                faceDetected = false,
+                awaitingFace = true,
+                scanTimerArmed = false
+            )
+        )
+        // A genuinely new face does — the same handshake that released the original park.
+        assertTrue(shouldArmScanTimer(faceGateEnabled = true, faceDetected = true))
+        assertEquals(
+            SessionStartFaceDecision.ARM_NOW,
+            sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = true)
+        )
     }
 }
