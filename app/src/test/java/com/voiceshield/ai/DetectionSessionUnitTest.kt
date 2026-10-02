@@ -8,7 +8,7 @@ import org.junit.Test
 /**
  * Pure-JVM tests for UC-02 (face_detection_flow.md) — the detection-session state.
  *
- * Two things the use case names as *system behaviour* are pure rules and therefore testable
+ * Three things the use case names as *system behaviour* are pure rules and therefore testable
  * here without Robolectric or an emulator:
  *
  *  - **Detection status** — enable_floating_bubble.md lists exactly three (Idle, Detecting,
@@ -18,8 +18,11 @@ import org.junit.Test
  *  - **Saving the face into the session** — step 5 saves it, A3 says nothing is saved when no
  *    face was detected, and step 10 removes it. The save gate is [shouldApplyFaceDetection],
  *    the same rule that already gates the model-result sequence.
+ *  - **Closing the pop-up** — step 8 says "Đóng" discards the face the session saved *and*
+ *    leaves the session standing, so the bubble stays active, the mode stays locked and the
+ *    status stays "Result displayed". [popupCloseOutcome] is that whole postcondition.
  *
- * Both are top-level Android-free functions in FloatingBubbleService.kt, in the same
+ * All three are top-level Android-free functions in FloatingBubbleService.kt, in the same
  * convention as [shouldArmScanTimer] (see [FaceGateUnitTest]) and [scanDelayMs].
  */
 class DetectionSessionUnitTest {
@@ -79,10 +82,16 @@ class DetectionSessionUnitTest {
         )
 
         // A1 — the user presses "Đóng". Closing the pop-up is *not* a deactivation, so the
-        // postcondition "the detection status is Result displayed" still holds.
+        // postcondition "the detection status is Result displayed" still holds. Read through
+        // the step-8 outcome rather than the bare status rule, so this asserts the whole
+        // postcondition and not just the part the two-flag mapping happens to cover.
         assertEquals(
             DetectionStatus.RESULT_DISPLAYED,
-            detectionStatusOf(scanning = true, resultDisplayed = true)
+            popupCloseOutcome(
+                scanning = true,
+                resultDisplayed = true,
+                sessionMode = ScanMode.SAFE
+            ).detectionStatus
         )
 
         // Steps 8/9 — only the second double-click returns it to Idle.
@@ -165,5 +174,111 @@ class DetectionSessionUnitTest {
         // The face arrives: the session saves it and the window opens together.
         assertTrue(shouldApplyFaceDetection(scanning = true, faceDetected = true))
         assertTrue(shouldArmScanTimer(faceGateEnabled = true, faceDetected = true))
+    }
+
+    // ── Closing the pop-up (step 8 / A1) ─────────────────────────────────────
+
+    /**
+     * Step 8's headline change: the face the session saved is discarded along with the pop-up.
+     *
+     * The service stores that face in `sessionFace`, which no JVM test can reach, so the rule is
+     * written as an outcome instead — and the difference is what the *next* test covers: step 8
+     * removes the face and nothing else.
+     */
+    @Test
+    fun closingThePopupDropsTheSavedFace() {
+        assertFalse(
+            popupCloseOutcome(
+                scanning = true,
+                resultDisplayed = true,
+                sessionMode = ScanMode.SAFE
+            ).faceStillSaved
+        )
+    }
+
+    /** Step 8's postcondition, first half: "the bubble stays active". */
+    @Test
+    fun closingThePopupKeepsTheSessionOpen() {
+        assertTrue(
+            popupCloseOutcome(
+                scanning = true,
+                resultDisplayed = true,
+                sessionMode = ScanMode.WARNING
+            ).sessionStillOpen
+        )
+    }
+
+    /**
+     * …and because the session is still open, the §6 mode it copied is still locked. A close
+     * that released the lock would let a mid-session selection through, which is the thing §6
+     * exists to prevent.
+     */
+    @Test
+    fun closingThePopupKeepsTheModeLocked() {
+        ScanMode.values().forEach { mode ->
+            assertTrue(
+                "sessionMode=$mode",
+                popupCloseOutcome(
+                    scanning = true,
+                    resultDisplayed = true,
+                    sessionMode = mode
+                ).modeStillLocked
+            )
+        }
+    }
+
+    /**
+     * Step 8's postcondition, second half: the status is still "Result displayed". Nothing about
+     * closing the pop-up walks the session back to Detecting.
+     */
+    @Test
+    fun closingThePopupLeavesTheStatusAtResultDisplayed() {
+        assertEquals(
+            DetectionStatus.RESULT_DISPLAYED,
+            popupCloseOutcome(
+                scanning = true,
+                resultDisplayed = true,
+                sessionMode = ScanMode.SAFE
+            ).detectionStatus
+        )
+    }
+
+    /**
+     * The whole of step 8 as one assertion — face gone, everything else exactly as it was. Only
+     * the second double-click (step 9) may take any of it away.
+     */
+    @Test
+    fun thePopupsOnlyContributionIsDroppingTheFace() {
+        assertEquals(
+            PopupCloseOutcome(
+                sessionStillOpen = true,
+                modeStillLocked = true,
+                detectionStatus = DetectionStatus.RESULT_DISPLAYED,
+                faceStillSaved = false
+            ),
+            popupCloseOutcome(
+                scanning = true,
+                resultDisplayed = true,
+                sessionMode = ScanMode.WARNING
+            )
+        )
+    }
+
+    /**
+     * The other side of the same rule: a pop-up closed with no session running leaves nothing
+     * behind either. Without this the rule could be satisfied by simply always reporting locked,
+     * which would strand Page 2 the way the old teardown bug did.
+     */
+    @Test
+    fun anInactiveSessionIsUnlockedAndIdleAfterAnyClose() {
+        val idle = popupCloseOutcome(
+            scanning = false,
+            resultDisplayed = false,
+            sessionMode = null
+        )
+        assertFalse(idle.sessionStillOpen)
+        assertFalse(idle.modeStillLocked)
+        assertEquals(DetectionStatus.IDLE, idle.detectionStatus)
+        assertFalse(idle.faceStillSaved)
     }
 }

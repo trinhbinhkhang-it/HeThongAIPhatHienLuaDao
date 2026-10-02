@@ -95,6 +95,39 @@ fun detectionStatusOf(scanning: Boolean, resultDisplayed: Boolean): DetectionSta
 }
 
 /**
+ * The session state UC-02 step 8 requires the instant "Đóng" is pressed on the In-App Pop-up.
+ *
+ * The step is easy to half-implement: it closes the pop-up *and* discards the face the session
+ * had saved, but it is emphatically not a deactivation, so the session, its locked mode and its
+ * "Result displayed" status all have to survive it. Expressed as flags rather than around the
+ * `Rect` the service actually stores, so the rule stays JVM-testable without Robolectric — the
+ * same convention as [detectionStatusOf] and [shouldApplyFaceDetection].
+ *
+ * [faceStillSaved] is a constant `false` on purpose: it is the spec's postcondition written
+ * down, and pinning it here means a future change that starts clearing the face somewhere else
+ * — for instance inside removePanel(), which the pop-up builders call to clear a *previous*
+ * panel — fails a test instead of silently dropping the face the moment the result appears.
+ */
+data class PopupCloseOutcome(
+    val sessionStillOpen: Boolean,
+    val modeStillLocked: Boolean,
+    val detectionStatus: DetectionStatus,
+    val faceStillSaved: Boolean
+)
+
+/** Derives the [PopupCloseOutcome] UC-02 step 8 must leave behind. */
+fun popupCloseOutcome(
+    scanning: Boolean,
+    resultDisplayed: Boolean,
+    sessionMode: ScanMode?
+): PopupCloseOutcome = PopupCloseOutcome(
+    sessionStillOpen = scanning,
+    modeStillLocked = isScanModeLocked(scanning && sessionMode != null),
+    detectionStatus = detectionStatusOf(scanning, resultDisplayed),
+    faceStillSaved = false
+)
+
+/**
  * Pure geometry gate for the drag-to-dismiss gesture
  * (disable_floating_bubble.md): the X target counts as "hit" once the bubble
  * centre lands within [thresholdPx] of the target centre.
@@ -1589,7 +1622,7 @@ class FloatingBubbleService : Service() {
                 popupTextParams(dimen(R.dimen.space_lg))
             )
             addView(
-                singleAction(getString(R.string.popup_btn_close)) { removePanel() },
+                singleAction(getString(R.string.popup_btn_close)) { closePopupByUser() },
                 popupTextParams(dimen(R.dimen.space_xl))
             )
         }
@@ -1621,7 +1654,7 @@ class FloatingBubbleService : Service() {
                 actionRow(
                     getString(R.string.popup_btn_close),
                     getString(R.string.popup_btn_disable_protection),
-                    ::removePanel,
+                    ::closePopupByUser,
                     ::stopProtection
                 ),
                 popupTextParams(0)
@@ -1933,6 +1966,26 @@ class FloatingBubbleService : Service() {
         panel?.let { runCatching { windowManager.removeView(it) } }
         panel = null
         popupAttached = false
+    }
+
+    /**
+     * UC-02 step 8 / A1 — the user pressed "Đóng" on the In-App Pop-up.
+     *
+     * The pop-up goes and the face this session saved goes with it, but the session itself does
+     * not: `scanning`, `sessionMode` and `resultDisplayed` are all left alone, so the bubble
+     * stays active, the §6 mode stays locked and the Detection status stays "Result displayed"
+     * until the second double-click ([stopScan]).
+     *
+     * Deliberately *not* folded into [removePanel], which this window shares with
+     * [showSafePopup], [showWarningPopup] and [showPanel]. All three call it to clear a
+     * *previous* panel, so clearing the face there would drop it at the very moment the result
+     * is displayed — breaking step 7's postcondition that the session holds the face until the
+     * pop-up is closed. [popupCloseOutcome] pins that separation.
+     */
+    private fun closePopupByUser() {
+        removePanel()
+        sessionFace = null
+        publishDetectionStatus()
     }
 
     private fun showHighRiskNotification() {
