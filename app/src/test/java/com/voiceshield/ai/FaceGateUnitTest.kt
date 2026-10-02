@@ -189,6 +189,29 @@ class FaceGateUnitTest {
         )
     }
 
+    /**
+     * The regression guard for the wiring commit 3 changed. [shouldArmScanTimer] — the rule a
+     * running session uses — reads the cached change edge, and that edge can say "face" while the
+     * screen shows none, because ScreenCaptureService only ever *announces* a change. An earlier
+     * version decided the session boundary with that same cached flag, which is how a double-tap
+     * with nobody in frame started a session that behaved as if a face were there. The boundary
+     * now consults only a fresh answer, so a stale cache cannot arm it, whatever it claims.
+     */
+    @Test
+    fun gateOn_aStaleCachedFaceCannotArmTheSessionBoundary() {
+        assertTrue(
+            "the stale cache really is claiming a face — that is what makes this a regression guard",
+            shouldArmScanTimer(faceGateEnabled = true, faceDetected = true)
+        )
+        listOf<Boolean?>(null, false).forEach { fresh ->
+            assertEquals(
+                "fresh=$fresh: the boundary must not inherit the cache's claim",
+                SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT,
+                sessionStartFaceDecision(faceGateEnabled = true, freshFacePresent = fresh)
+            )
+        }
+    }
+
     /** Exhaustive: the rule is a pure function of exactly this boolean and this tri-state. */
     @Test
     fun sessionBoundaryTruthTableIsComplete() {

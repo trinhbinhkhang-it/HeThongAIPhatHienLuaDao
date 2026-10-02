@@ -531,13 +531,33 @@ class FloatingBubbleService : Service() {
     /**
      * The most recent face rectangle ScreenCaptureService reported, remembered even while the
      * bubble is idle — the exact companion of [participantFaceDetected], and for the same
-     * reason: the capture service only broadcasts when that state *changes*, so a face already
-     * in frame when the user double-taps would otherwise never reach the new session.
+     * reason: the capture service only reports on a *change*, so a face already in frame when the
+     * user double-taps would otherwise never reach the new session.
      *
      * Deliberately not session-scoped and not cleared by [stopScan]: it caches what the screen
-     * currently shows, of which [sessionFace] is the session-scoped copy.
+     * last showed, of which [sessionFace] is the session-scoped copy.
+     *
+     * It is only ever a *cache*. A session boundary does not treat it as an authority — it asks
+     * the capture service for a fresh answer and holds that in [freshFacePresent].
      */
     private var lastReportedFaceBounds: Rect? = null
+
+    /**
+     * The answer to the question [startScan] asks of ScreenCaptureService: was a face on screen
+     * when this session began?
+     *
+     *  - null — asked and not answered yet. A gated session parks on this, because an unanswered
+     *    question is not a "yes" (see [sessionStartFaceDecision]).
+     *  - true / false — the capture service's *direct* answer, which — unlike
+     *    [participantFaceDetected] — describes the screen now rather than the last change that
+     *    happened to be broadcast.
+     *
+     * Reset to null at every session boundary — the start of one, the end of one, and each of the
+     * teardown paths — so a later session can never act on an answer that was given to an earlier
+     * screen. Nothing inside a session reads it: [awaitingFace] is the flag a running scan acts on,
+     * and this only exists to decide what [awaitingFace] should be at the boundary.
+     */
+    private var freshFacePresent: Boolean? = null
 
     /** Guards the blink recursion so stopBlink() can't be raced by an end-action. */
     private var isBlinking = false
@@ -721,6 +741,11 @@ class FloatingBubbleService : Service() {
             // Cache the rectangle beside the flag, under the same "remember it even while idle"
             // rule: a session started after this report has no new broadcast coming.
             lastReportedFaceBounds = if (detected) bounds ?: lastReportedFaceBounds else null
+            // A direct answer to the session-boundary question — a statement about the screen
+            // *now*, unlike the change edges above. Recorded as such before anything acts on it.
+            if (intent.getBooleanExtra(ScreenCaptureService.EXTRA_FACE_STATE_FRESH, false)) {
+                freshFacePresent = detected
+            }
             // UC-02 A8: with the gate on, a face is a condition that holds for the *whole*
             // session, not an admission ticket for its start, so losing it withdraws everything
             // the session still had pending. The report is consumed there — the branches below
@@ -926,6 +951,8 @@ class FloatingBubbleService : Service() {
         sessionMode = null
         resultDisplayed = false
         sessionFace = null
+        // The boundary answer dies with the session it was given for.
+        freshFacePresent = null
         // No stopScan() runs on this path (A2 "Tắt bảo vệ", A6 drag-to-X, A7 lifecycle), so
         // the active flag is cleared here too. It is what the Detection status is derived
         // from, and a dead service must report Idle rather than a session that no longer runs.
@@ -1634,9 +1661,10 @@ class FloatingBubbleService : Service() {
     }
 
     /**
-     * Mint bubble + looping ripple, then arm the mode-specific popup timer — unless the
-     * hidden "Chế độ nhận diện khuôn mặt" gate is on, in which case the scan parks until
-     * a real human face shows up on screen.
+     * Mint bubble + looping ripple, then arm the mode-specific popup timer — unless the hidden
+     * "Chế độ nhận diện khuôn mặt" gate is on, in which case the scan parks until ScreenCaptureService
+     * confirms a real human face is on screen *now*. The confirmation is asked for rather than read
+     * from the cached flags: see [requestFreshFaceState].
      */
     private fun startScan() {
         scanning = true
@@ -1654,7 +1682,18 @@ class FloatingBubbleService : Service() {
         // Read the gate *before* render(): render() picks the content description from
         // awaitingFace, so the bubble has to know it is waiting before it repaints.
         val faceGateOn = ProtectionState.isFaceGateEnabled(this)
-        awaitingFace = !shouldArmScanTimer(faceGateOn, participantFaceDetected)
+        if (faceGateOn) {
+            // A brand-new session must not inherit the previous screen's view. The cached face
+            // flags are deliberately *not* consulted: ScreenCaptureService only ever *announces* a
+            // change, so the last one it announced may describe a screen the user has long since
+            // left — which is how a double-tap with nobody in frame used to start a session that
+            // behaved as if a face were there. Instead the answer starts unanswered and the capture
+            // service is asked directly; it is applied where it lands, in the faceDetectionReceiver.
+            freshFacePresent = null
+            requestFreshFaceState()
+        }
+        awaitingFace = sessionStartFaceDecision(faceGateOn, freshFacePresent) ==
+            SessionStartFaceDecision.PARK_UNTIL_FRESH_REPORT
         scanTimerArmed = false
         render()
         if (awaitingFace) {
@@ -1664,16 +1703,34 @@ class FloatingBubbleService : Service() {
         } else {
             armScanTimer()
         }
-        // A participant face may already be in frame: it was reported while the
-        // bubble was idle (and deliberately ignored), and ScreenCaptureService
-        // only re-broadcasts when that state *changes*.
-        if (shouldApplyFaceDetection(scanning, participantFaceDetected)) {
-            // UC-02 step 5 applies to it all the same, so the new session adopts the cached
+        if (!faceGateOn && shouldApplyFaceDetection(scanning, participantFaceDetected)) {
+            // Gate off — the documented behaviour, unchanged. A participant face was reported
+            // while the bubble was idle (and deliberately ignored), and ScreenCaptureService only
+            // re-broadcasts when that state *changes*, so the new session adopts the cached
             // rectangle rather than staying empty until the next change is reported.
+            //
+            // UC-02 step 5 applies to it all the same.
             sessionFace = lastReportedFaceBounds
             publishDetectionStatus()
             beginResultSequence()
         }
+    }
+
+    /**
+     * Asks ScreenCaptureService what the screen shows right now, so a session boundary does not
+     * have to trust the last change it happened to be told about. The answer comes back as an
+     * ordinary [ScreenCaptureService.ACTION_FACE_DETECTION_CHANGED] carrying
+     * [ScreenCaptureService.EXTRA_FACE_STATE_FRESH], and the receiver applies it there.
+     *
+     * Best-effort by design: with no projection running there is nothing to answer, and the gated
+     * session then stays parked for as long as that lasts — the correct outcome for a scan that is
+     * supposed to require a face.
+     */
+    private fun requestFreshFaceState() {
+        sendBroadcast(
+            Intent(ScreenCaptureService.ACTION_FACE_STATE_REQUESTED)
+                .setPackage(packageName)
+        )
     }
 
     /**
@@ -1686,6 +1743,8 @@ class FloatingBubbleService : Service() {
         // A face-gated scan that never saw a face must not leave its "waiting" flag
         // behind, or the next double-tap would start out mislabelled.
         awaitingFace = false
+        // Same for the boundary answer, which belongs to the session being ended.
+        freshFacePresent = null
         scanTimerArmed = false
         // §6: the bubble is inactive again, so the session's mode lock is released and the
         // next double tap copies whatever is selected at that point.

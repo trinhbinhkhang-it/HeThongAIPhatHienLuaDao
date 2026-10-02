@@ -4,8 +4,10 @@ import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -53,6 +55,21 @@ class ScreenCaptureService : Service() {
     private var hasParticipantFace = false
     private var consecutiveMisses = 0
     private var consecutiveMismatches = 0
+
+    /**
+     * Whether the *most recent sampled frame* actually contained a participant face, recorded
+     * before any of [updateTracking]'s tolerance logic can hold a stale rectangle across a blink.
+     *
+     * Deliberately a second field beside [hasParticipantFace] rather than a replacement for it.
+     * The debounced flag is the right answer while a session runs — holding a tracked face across
+     * [MAX_MISS_TOLERANCE] frames is what keeps a blink or a turn of the head from ending a
+     * detection — and the wrong answer at a session boundary, where it would report "face" for up
+     * to three sampled frames after the screen stopped showing one. See [answerFaceStateRequest].
+     *
+     * `@Volatile` because the boundary answer is built on the capture thread while the request
+     * arrives on the main thread.
+     */
+    @Volatile private var latestFrameHadFace = false
     private lateinit var captureThread: HandlerThread
     private lateinit var captureHandler: Handler
     private lateinit var faceDetector: FaceDetector
@@ -134,6 +151,8 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         publishStatus("Capture stopped")
+        // Before the capture thread goes: an in-flight answer must not outlive its handler.
+        unregisterReceiver(faceStateRequestReceiver)
         virtualDisplay?.release()
         imageReader?.close()
         projection?.stop()
@@ -160,6 +179,14 @@ class ScreenCaptureService : Service() {
         publishStatus("Face detector ready")
         val channel = NotificationChannel(CHANNEL_ID, getString(R.string.notif_capture_channel), NotificationManager.IMPORTANCE_LOW)
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        // A session boundary can ask for the current face state instead of waiting for an edge
+        // that may never come (see answerFaceStateRequest). Not exported: only this app asks.
+        ContextCompat.registerReceiver(
+            this,
+            faceStateRequestReceiver,
+            IntentFilter(ACTION_FACE_STATE_REQUESTED),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
     }
 
     private fun createNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -242,6 +269,10 @@ class ScreenCaptureService : Service() {
         val candidates = candidateRects
             .filterNot { box -> isLikelyPipPreview(box, screenWidth, screenHeight, previousFace) }
             .filterNot { box -> isLikelyPrivacyMask(box, screenWidth, screenHeight) }
+        // Record what this frame really contained *before* the tolerance branches below get a
+        // chance to hold the previous rectangle across a miss: this is the only honest answer to
+        // a session boundary's "is a face on screen right now?".
+        latestFrameHadFace = candidates.isNotEmpty()
 
         if (previousFace == null) {
             val best = candidates.maxByOrNull { box -> scoreFaceCandidate(box, screenWidth, screenHeight, null) }
@@ -505,6 +536,12 @@ class ScreenCaptureService : Service() {
      * rather than a bare boolean. Only fires on a genuine change — the face moving within
      * one identity is already smoothed by [smoothFaceRect] and does not re-broadcast, so a
      * session saves the face once and keeps it until it ends.
+     *
+     * That deduplication is right for a running session and wrong for a session *boundary*: a
+     * face that leaves and comes back inside the tolerance window never produces a change to
+     * broadcast, so a bubble that had parked on the old state would stay parked. That is why
+     * [answerFaceStateRequest] exists — it answers a direct question instead of announcing an
+     * edge — and why the receiver of its answer treats it as fresh by construction.
      */
     private fun setParticipantFaceDetected(detected: Boolean) {
         if (hasParticipantFace == detected) return
@@ -517,6 +554,53 @@ class ScreenCaptureService : Service() {
         )
     }
 
+    /**
+     * Answers a session boundary's question — FloatingBubbleService asking "is a face on screen
+     * *right now*?" — with a fresh report rather than the last edge that happened to be
+     * broadcast.
+     *
+     * Posted to the capture thread rather than answered inline on the main thread the request
+     * arrived on: [hasParticipantFace] and [consecutiveMisses] are capture-thread-only state and
+     * reading or committing them anywhere else would be a data race.
+     *
+     * The answer is [latestFrameHadFace], never the debounced [hasParticipantFace]. The debounced
+     * flag deliberately holds a tracked face across [MAX_MISS_TOLERANCE] sampled frames so a blink
+     * does not end a session; trusting it at a boundary is exactly what let a scan start on a
+     * screen whose face had already gone.
+     *
+     * Answering "no face" also *commits* that state to the producer: the tracked rectangle and the
+     * debounced flag are dropped, so the consumer's park stays in step with the producer. Without
+     * that, a face that left and returned inside the tolerance window would be a no-change for
+     * [setParticipantFaceDetected], no "face present" broadcast would ever fire, and a session
+     * parked on this answer would stay parked until the user double-clicked again.
+     */
+    private fun answerFaceStateRequest() {
+        val faceNow = latestFrameHadFace
+        if (!faceNow) {
+            lastTrackedFaceRect = null
+            hasParticipantFace = false
+            consecutiveMisses = 0
+        }
+        Log.i(TAG, "Face state requested | faceOnScreen=$faceNow")
+        // Bypasses setParticipantFaceDetected() on purpose: this is an answer, not an edge, so it
+        // must be delivered even when the state did not change.
+        sendBroadcast(
+            Intent(ACTION_FACE_DETECTION_CHANGED)
+                .setPackage(packageName)
+                .putExtra(EXTRA_FACE_DETECTED, faceNow)
+                .putExtra(EXTRA_FACE_BOUNDS, if (faceNow) lastTrackedFaceRect else null)
+                .putExtra(EXTRA_FACE_STATE_FRESH, true)
+        )
+    }
+
+    /** A boundary question from the bubble. Answered on the capture thread — see the handler. */
+    private val faceStateRequestReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action != ACTION_FACE_STATE_REQUESTED) return
+            captureHandler.post { answerFaceStateRequest() }
+        }
+    }
+
     companion object {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
@@ -527,6 +611,19 @@ class ScreenCaptureService : Service() {
         const val EXTRA_STATUS = "status"
         const val ACTION_FACE_DETECTION_CHANGED = "com.voiceshield.ai.FACE_DETECTION_CHANGED"
         const val EXTRA_FACE_DETECTED = "face_detected"
+
+        /**
+         * A session boundary asking ScreenCaptureService to report the screen's face state *now*,
+         * instead of waiting for the next change edge (which may never come).
+         */
+        const val ACTION_FACE_STATE_REQUESTED = "com.voiceshield.ai.FACE_STATE_REQUESTED"
+
+        /**
+         * True on [ACTION_FACE_DETECTION_CHANGED] when the report is a direct answer to
+         * [ACTION_FACE_STATE_REQUESTED] rather than a change notification, so the bubble knows it
+         * may trust it as a statement about the current screen.
+         */
+        const val EXTRA_FACE_STATE_FRESH = "face_state_fresh"
 
         /** Tracked face rectangle (`Rect`, Parcelable) on [ACTION_FACE_DETECTION_CHANGED]. */
         const val EXTRA_FACE_BOUNDS = "face_bounds"
