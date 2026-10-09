@@ -83,6 +83,10 @@ object ProtectionState {
     private const val KEY_WARNING_MAX = "warning_interval_max_seconds"
     private const val KEY_FACE_GATE = "face_gate_enabled"
 
+    // Hidden developer page — Discord alert mirror.
+    private const val KEY_DISCORD_WEBHOOK = "discord_webhook"
+    private const val KEY_DISCORD_ENABLED = "discord_enabled"
+
     // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
     // so reordering an enum can never silently re-map a user's saved choice.
     private const val KEY_SCAN_MODE_ENTRY = "scan_mode_entry"
@@ -184,6 +188,38 @@ object ProtectionState {
                 .setPackage(context.packageName)
                 .putExtra(EXTRA_FACE_GATE, enabled)
         )
+    }
+
+    /**
+     * The hidden developer option "DISCORD WEBHOOK" — the URL a Warning-mode high-risk
+     * result is mirrored to.
+     *
+     * Defaults to blank. A blank value (or [isDiscordEnabled] off) makes the mirror a
+     * no-op; nothing is ever sent without both being set.
+     */
+    fun getDiscordWebhook(context: Context): String =
+        prefs(context).getString(KEY_DISCORD_WEBHOOK, "").orEmpty()
+
+    /** Persists the webhook URL. Blank clears it. No broadcast: only the next alert reads it. */
+    fun setDiscordWebhook(context: Context, url: String) {
+        prefs(context).edit().putString(KEY_DISCORD_WEBHOOK, url.trim()).apply()
+    }
+
+    /** The hidden developer switch that arms the Discord mirror. Defaults to **off**. */
+    fun isDiscordEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DISCORD_ENABLED, false)
+
+    /** Persists the Discord mirror switch. No broadcast: the alert reads it at send time. */
+    fun setDiscordEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DISCORD_ENABLED, enabled).apply()
+    }
+
+    /** Restores the hidden Discord mirror to its default (off, no webhook). */
+    fun resetDiscord(context: Context) {
+        prefs(context).edit()
+            .putBoolean(KEY_DISCORD_ENABLED, false)
+            .putString(KEY_DISCORD_WEBHOOK, "")
+            .apply()
     }
 
     /**

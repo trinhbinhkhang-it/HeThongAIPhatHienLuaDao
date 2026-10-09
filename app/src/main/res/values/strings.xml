@@ -96,6 +96,18 @@
     <string name="hidden_interaction_note">Bốn mục trên có hiệu lực ngay khi chọn và được lưu lại sau khi khởi động lại ứng dụng. Chế độ quét đang chọn không bị thay đổi.</string>
     <string name="hidden_interaction_saved">Đã lưu cài đặt tương tác</string>
 
+    <!-- ===== Hidden developer page: Discord webhook alert mirror ===== -->
+    <string name="hidden_section_discord">DISCORD WEBHOOK</string>
+    <string name="hidden_discord_title">Gửi cảnh báo tới Discord</string>
+    <string name="hidden_discord_summary">Khi bật, mỗi kết quả rủi ro cao ở Chế độ Cảnh báo sẽ được gửi tới webhook bên dưới dưới dạng embed chỉ chứa thông tin (điểm rủi ro, chế độ, vùng khuôn mặt, thời gian, thiết bị).</string>
+    <string name="hidden_discord_hint">Dán URL Discord webhook (https://discord.com/api/webhooks/…)</string>
+    <string name="hidden_discord_on">Đã bật gửi cảnh báo tới Discord</string>
+    <string name="hidden_discord_off">Đã tắt gửi cảnh báo tới Discord</string>
+    <string name="btn_discord_test">Gửi thử</string>
+    <string name="discord_test_sent">Đã gửi tin nhắn thử tới Discord</string>
+    <string name="discord_test_failed">Gửi thất bại (HTTP %1$d). Kiểm tra lại webhook và kết nối mạng.</string>
+    <string name="discord_test_invalid_url">URL webhook không hợp lệ. Cần https://discord.com/api/webhooks/…</string>
+
     <!-- ===== Scan-mode change feedback (§7) ===== -->
     <string name="mode_changed_feedback">Chế độ quét: %1$s</string>
 

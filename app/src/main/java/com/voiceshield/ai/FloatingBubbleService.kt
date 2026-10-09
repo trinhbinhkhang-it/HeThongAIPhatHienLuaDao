@@ -2141,6 +2141,11 @@ class FloatingBubbleService : Service() {
             postResult(4_500) {
                 update(DetectionResult(84, RiskLevel.HIGH_RISK))
                 showHighRiskNotification()
+                // Option A: mirror the *result* branch — the one place the score is the real
+                // high-risk value — to Discord, so a Warning session yields exactly one alert.
+                // The notification above still rides the timer path; the mirror deliberately
+                // does not, or a single session would post twice and the early one with no score.
+                mirrorHighRiskToDiscord()
             }
         } else {
             postResult(900) { update(DetectionResult(24, RiskLevel.NORMAL)) }
@@ -2251,6 +2256,45 @@ class FloatingBubbleService : Service() {
             .setAutoCancel(true)
             .build()
         getSystemService(NotificationManager::class.java).notify(WARNING_NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Hidden developer "DISCORD WEBHOOK" — mirrors the high-risk result to Discord.
+     *
+     * Reads the switch and the URL at send time, so a change on the hidden page applies to
+     * the next alert with no listener; nothing is sent unless the switch is on *and* the
+     * stored URL validates. The network write happens off the main thread inside
+     * [DiscordNotifier] and its result is intentionally discarded — a failed webhook must
+     * never disturb the in-app warning that already went out.
+     */
+    private fun mirrorHighRiskToDiscord() {
+        val webhook = ProtectionState.getDiscordWebhook(this)
+        if (!ProtectionState.isDiscordEnabled(this) || !isValidDiscordWebhook(webhook)) return
+        DiscordNotifier.send(webhook, discordEmbedPayload(currentDiscordAlert()))
+    }
+
+    /**
+     * Snapshots the metadata a Discord embed carries: the result already shown on the
+     * bubble, the session's locked mode (never the live Page-2 preference, per §6), the
+     * saved session face, the fire time and the device. The face is null-safe — a session
+     * that held none reports "no face" rather than inventing a rectangle.
+     */
+    private fun currentDiscordAlert(): DiscordAlert {
+        val face = sessionFace
+        return DiscordAlert(
+            score = current.score,
+            riskLabel = current.riskLevel.label(),
+            modeLabel = getString(
+                if (activeSessionMode() == ScanMode.WARNING) R.string.mode_warning
+                else R.string.mode_safe
+            ),
+            faceLeft = face?.left,
+            faceTop = face?.top,
+            faceWidth = face?.width(),
+            faceHeight = face?.height(),
+            timestampMs = System.currentTimeMillis(),
+            device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
+        )
     }
 
     private fun createNotificationChannel() {

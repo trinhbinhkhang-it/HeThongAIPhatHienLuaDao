@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Outbound HTTPS POST to the developer-configured Discord webhook. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Gentle haptic fired when the bubble is dropped on the dismiss X target. -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

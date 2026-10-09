@@ -113,6 +113,9 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var warningMaxInput: TextInputEditText
     private lateinit var preview: TextView
     private lateinit var faceGateSwitch: SwitchMaterial
+    private lateinit var discordWebhookInput: TextInputEditText
+    private lateinit var discordEnabledSwitch: SwitchMaterial
+    private lateinit var discordTestButton: MaterialButton
 
     // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
     // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
@@ -165,6 +168,22 @@ class HiddenSettingsActivity : AppCompatActivity() {
             ).show()
         }
 
+    /**
+     * Arms the Discord mirror the moment the switch flips, exactly like [faceGateListener] —
+     * the alert reads the persisted flag at send time, so no Save is required and no
+     * broadcast is sent. A field (not inlined) so [reset] can detach it while forcing the
+     * switch back to off without its "đã tắt" toast overwriting the reset confirmation.
+     */
+    private val discordEnabledListener =
+        CompoundButton.OnCheckedChangeListener { _, checked ->
+            ProtectionState.setDiscordEnabled(this, checked)
+            Toast.makeText(
+                this,
+                if (checked) R.string.hidden_discord_on else R.string.hidden_discord_off,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hidden_settings)
@@ -175,6 +194,9 @@ class HiddenSettingsActivity : AppCompatActivity() {
         warningMaxInput = findViewById(R.id.input_warning_max)
         preview = findViewById(R.id.hidden_preview)
         faceGateSwitch = findViewById(R.id.switch_face_gate)
+        discordWebhookInput = findViewById(R.id.input_discord_webhook)
+        discordEnabledSwitch = findViewById(R.id.switch_discord_enabled)
+        discordTestButton = findViewById(R.id.btn_discord_test)
         entryGroup = findViewById(R.id.group_scan_mode_entry)
         holdDurationGroup = findViewById(R.id.group_hold_duration)
         autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
@@ -186,6 +208,17 @@ class HiddenSettingsActivity : AppCompatActivity() {
         // listens for ACTION_FACE_GATE_CHANGED and follows the new setting immediately.
         faceGateSwitch.isChecked = ProtectionState.isFaceGateEnabled(this)
         faceGateSwitch.setOnCheckedChangeListener(faceGateListener)
+
+        // The Discord mirror, bound the same way: switch first (listener detached), URL
+        // echoed, then the listeners attached so restoring state is never mistaken for a
+        // user action.
+        discordEnabledSwitch.isChecked = ProtectionState.isDiscordEnabled(this)
+        discordWebhookInput.setText(ProtectionState.getDiscordWebhook(this))
+        discordEnabledSwitch.setOnCheckedChangeListener(discordEnabledListener)
+        discordWebhookInput.addTextChangedListener(
+            afterTextChangedWatcher { renderDiscordState() }
+        )
+        renderDiscordState()
 
         // §1–§3/§7 are applied on change for the same reason, and bound *before* the
         // listener is attached so echoing the persisted selection cannot re-save it.
@@ -203,12 +236,16 @@ class HiddenSettingsActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_hidden_save).setOnClickListener { save() }
         findViewById<MaterialButton>(R.id.btn_hidden_reset).setOnClickListener { reset() }
         findViewById<MaterialButton>(R.id.btn_hidden_back).setOnClickListener { finish() }
+        discordTestButton.setOnClickListener { testDiscord() }
     }
 
     private fun save() {
         val safe = enteredSafeInterval()
         val warning = enteredWarningInterval()
         ProtectionState.setIntervals(this, safe, warning)
+        // The webhook URL is saved alongside the roll windows. Its switch is applied on
+        // change, not here, so the "Lưu" toast never implies the mirror was (dis)armed.
+        ProtectionState.setDiscordWebhook(this, discordWebhookInput.text?.toString().orEmpty())
         // Echo the normalised pair back: what is on screen is then exactly what is
         // persisted, even when the input needed clamping or swapping.
         bind(safe, warning)
@@ -224,6 +261,13 @@ class HiddenSettingsActivity : AppCompatActivity() {
         faceGateSwitch.setOnCheckedChangeListener(null)
         faceGateSwitch.isChecked = false
         faceGateSwitch.setOnCheckedChangeListener(faceGateListener)
+        // …and the Discord mirror (off, no webhook), detached the same way so its "đã tắt"
+        // toast does not overwrite the reset confirmation.
+        ProtectionState.resetDiscord(this)
+        discordEnabledSwitch.setOnCheckedChangeListener(null)
+        discordEnabledSwitch.isChecked = false
+        discordEnabledSwitch.setOnCheckedChangeListener(discordEnabledListener)
+        discordWebhookInput.setText("")
         // …and the four developer_setting_page.md interaction settings, back to single
         // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
         // alone: it is not one of these settings, and §8 requires it to survive.
@@ -232,6 +276,50 @@ class HiddenSettingsActivity : AppCompatActivity() {
         bind(DEFAULT_SAFE_INTERVAL, DEFAULT_WARNING_INTERVAL)
         Toast.makeText(this, R.string.hidden_reset, Toast.LENGTH_SHORT).show()
     }
+
+    /**
+     * Sends a sample embed to whatever URL is currently in the field, so the webhook can be
+     * verified before the switch is armed. The button is disabled unless the field holds a
+     * valid Discord webhook URL, so an invalid send is only reachable through a stale UI.
+     */
+    private fun testDiscord() {
+        val url = discordWebhookInput.text?.toString()?.trim().orEmpty()
+        if (!isValidDiscordWebhook(url)) {
+            Toast.makeText(this, R.string.discord_test_invalid_url, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Remember the field as the configured webhook too: testing is the moment the
+        // developer asserts this is the URL, so it doubles as Save for the URL.
+        ProtectionState.setDiscordWebhook(this, url)
+        DiscordNotifier.send(url, discordEmbedPayload(sampleDiscordAlert(), isTest = true)) { ok, code ->
+            val message = if (ok) getString(R.string.discord_test_sent)
+            else getString(R.string.discord_test_failed, code)
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Keeps "Gửi thử" honest: it only fires for a URL that would really be accepted. */
+    private fun renderDiscordState() {
+        discordTestButton.isEnabled =
+            isValidDiscordWebhook(discordWebhookInput.text?.toString().orEmpty())
+    }
+
+    /**
+     * The metadata a "Test" send carries — fixed sample values, since a test is about the
+     * webhook, not a live session. Device data is real so the embed shows where it came from.
+     */
+    private fun sampleDiscordAlert() = DiscordAlert(
+        score = 84,
+        riskLabel = getString(R.string.risk_high),
+        modeLabel = getString(R.string.mode_warning),
+        faceLeft = 120,
+        faceTop = 240,
+        faceWidth = 320,
+        faceHeight = 320,
+        timestampMs = System.currentTimeMillis(),
+        device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
+            "(Android ${android.os.Build.VERSION.RELEASE})"
+    )
 
     /**
      * Echoes [settings] back into the four radio groups with the listener detached, so
