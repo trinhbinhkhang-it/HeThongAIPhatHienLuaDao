@@ -107,6 +107,17 @@
     <string name="discord_test_sent">Đã gửi tin nhắn thử tới Discord</string>
     <string name="discord_test_failed">Gửi thất bại (HTTP %1$d). Kiểm tra lại webhook và kết nối mạng.</string>
     <string name="discord_test_invalid_url">URL webhook không hợp lệ. Cần https://discord.com/api/webhooks/…</string>
+    <string name="hidden_discord_screenshot_title">Gửi ảnh chụp màn hình</string>
+    <string name="hidden_discord_screenshot_summary">Khi bật, cảnh báo Discord sẽ kèm ảnh chụp màn hình gần nhất có khuôn mặt. Ảnh có thể chứa toàn bộ nội dung đang hiển thị trên màn hình.</string>
+
+    <!-- ===== Personal-information page ===== -->
+    <string name="profile_title">Thông tin cá nhân</string>
+    <string name="profile_intro">Tên của bạn sẽ được hiển thị trong cảnh báo gửi tới Discord.</string>
+    <string name="profile_name_hint">Họ và tên</string>
+    <string name="profile_note">Chỉ tên được dùng cho cảnh báo. Không dùng cho bất kỳ mục đích nào khác.</string>
+    <string name="btn_profile_save">Lưu thông tin</string>
+    <string name="btn_profile_back">Quay lại</string>
+    <string name="profile_saved">Đã lưu thông tin cá nhân</string>
 
     <!-- ===== Scan-mode change feedback (§7) ===== -->
     <string name="mode_changed_feedback">Chế độ quét: %1$s</string>

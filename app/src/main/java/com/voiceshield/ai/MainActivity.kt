@@ -205,6 +205,10 @@ class MainActivity : AppCompatActivity() {
         statusBadge = findViewById(R.id.status_badge)
         statusBadgeIcon = findViewById(R.id.status_badge_icon)
         footerVersion = findViewById(R.id.footer_version)
+        // Top-right profile action -> the personal-information page.
+        findViewById<View>(R.id.btn_profile).setOnClickListener {
+            startActivity(Intent(this, PersonalInfoActivity::class.java))
+        }
 
         protectionButton.setOnClickListener {
             if (isProtecting) stopProtection() else startProtection()

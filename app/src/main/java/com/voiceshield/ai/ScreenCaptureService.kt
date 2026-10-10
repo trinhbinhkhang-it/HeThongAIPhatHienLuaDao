@@ -157,6 +157,8 @@ class ScreenCaptureService : Service() {
         imageReader?.close()
         projection?.stop()
         faceDetector.close()
+        // A frame cached for an alert must not outlive the capture it came from.
+        FaceFrameCache.clear()
         captureThread.quitSafely()
         super.onDestroy()
     }
@@ -248,6 +250,11 @@ class ScreenCaptureService : Service() {
                 }
 
                 updateTracking(validFaces.map { it.boundingBox }, image.width, image.height)
+                // Screenshot option: keep the newest frame that actually contained a face, so
+                // the alert can attach an image of *why* it fired rather than a stale one.
+                if (validFaces.isNotEmpty() && ProtectionState.isDiscordScreenshotEnabled(this)) {
+                    cacheFaceFrame(image)
+                }
             }
             .addOnFailureListener { error ->
                 Log.e(TAG, "Face detection failed", error)
@@ -435,6 +442,36 @@ class ScreenCaptureService : Service() {
         frames.sortedBy { it.lastModified() }
             .take(frames.size - DEBUG_FRAME_MAX_COUNT)
             .forEach { it.delete() }
+    }
+
+    /**
+     * Downsizes and JPEG-compresses the current frame into [FaceFrameCache].
+     *
+     * Only ever called for a frame that really contained a valid face, so the cache holds the
+     * newest *face-bearing* image rather than the newest image of anything. The frame is
+     * downscaled to [FACE_FRAME_MAX_WIDTH] and compressed at [FACE_FRAME_JPEG_QUALITY] so the
+     * upload stays modest; both bitmaps are recycled so a per-second capture cannot leak.
+     */
+    private fun cacheFaceFrame(image: Image) {
+        val bitmap = image.toBitmap() ?: return
+        try {
+            val scaled = if (bitmap.width > FACE_FRAME_MAX_WIDTH) {
+                val ratio = FACE_FRAME_MAX_WIDTH.toFloat() / bitmap.width
+                val height = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+                Bitmap.createScaledBitmap(bitmap, FACE_FRAME_MAX_WIDTH, height, true)
+            } else {
+                bitmap
+            }
+            val out = ByteArrayOutputStream()
+            if (scaled.compress(Bitmap.CompressFormat.JPEG, FACE_FRAME_JPEG_QUALITY, out)) {
+                FaceFrameCache.store(out.toByteArray())
+            }
+            if (scaled !== bitmap) scaled.recycle()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to cache face frame", t)
+        } finally {
+            bitmap.recycle()
+        }
     }
 
     private fun Image.toBitmap(): Bitmap? {
@@ -641,5 +678,9 @@ class ScreenCaptureService : Service() {
         private const val SMOOTHING_ALPHA = 0.3f
         private const val DEBUG_FRAME_DIR = "debug_frames"
         private const val DEBUG_FRAME_MAX_COUNT = 10
+
+        /** Longest edge of a cached screenshot, to keep the Discord upload small. */
+        private const val FACE_FRAME_MAX_WIDTH = 1080
+        private const val FACE_FRAME_JPEG_QUALITY = 70
     }
 }

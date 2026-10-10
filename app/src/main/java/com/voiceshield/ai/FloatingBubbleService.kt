@@ -45,12 +45,29 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import kotlin.math.abs
 import kotlin.math.ceil
+import kotlin.random.Random
 import java.lang.ref.WeakReference
 
 /** A UI-only boundary: replace FakeDetectionResult with the model result later. */
 data class DetectionResult(val score: Int, val riskLevel: RiskLevel)
 
 enum class RiskLevel { NO_RESULT, NORMAL, SUSPICIOUS, HIGH_RISK }
+
+/** Inclusive bounds of the fake high-risk score, per the product spec ("random 80–92"). */
+const val HIGH_RISK_SCORE_MIN = 80
+const val HIGH_RISK_SCORE_MAX = 92
+
+/**
+ * Rolls the high-risk score the bubble shows — and the Discord alert reports — inside
+ * [HIGH_RISK_SCORE_MIN]..[HIGH_RISK_SCORE_MAX] inclusive.
+ *
+ * Deliberately a top-level pure function with an injectable [Random], exactly like
+ * [scanDelayMs], so the range is unit-testable on the JVM. Both the panel and the alert read
+ * the single value rolled here, so they can never disagree.
+ */
+fun randomHighRiskScore(random: Random = Random): Int =
+    HIGH_RISK_SCORE_MIN + random.nextInt(HIGH_RISK_SCORE_MAX - HIGH_RISK_SCORE_MIN + 1)
+
 
 /**
  * ScreenCaptureService tracks faces for as long as the projection runs, but its
@@ -2139,7 +2156,7 @@ class FloatingBubbleService : Service() {
         if (activeSessionMode() == ScanMode.WARNING) {
             postResult(900) { update(DetectionResult(58, RiskLevel.SUSPICIOUS)) }
             postResult(4_500) {
-                update(DetectionResult(84, RiskLevel.HIGH_RISK))
+                update(DetectionResult(randomHighRiskScore(), RiskLevel.HIGH_RISK))
                 showHighRiskNotification()
                 // Option A: mirror the *result* branch — the one place the score is the real
                 // high-risk value — to Discord, so a Warning session yields exactly one alert.
@@ -2270,32 +2287,28 @@ class FloatingBubbleService : Service() {
     private fun mirrorHighRiskToDiscord() {
         val webhook = ProtectionState.getDiscordWebhook(this)
         if (!ProtectionState.isDiscordEnabled(this) || !isValidDiscordWebhook(webhook)) return
-        DiscordNotifier.send(webhook, discordEmbedPayload(currentDiscordAlert()))
+        // The screenshot rides along only when its own toggle is on. A null frame (the toggle
+        // is off, or no face-bearing frame was cached yet) simply means an image-less embed —
+        // never an unrelated photo.
+        val screenshot = if (ProtectionState.isDiscordScreenshotEnabled(this)) {
+            FaceFrameCache.latestJpeg
+        } else {
+            null
+        }
+        val payload = discordEmbedPayload(currentDiscordAlert(), hasImage = screenshot != null)
+        DiscordNotifier.send(webhook, payload, screenshot)
     }
 
     /**
-     * Snapshots the metadata a Discord embed carries: the result already shown on the
-     * bubble, the session's locked mode (never the live Page-2 preference, per §6), the
-     * saved session face, the fire time and the device. The face is null-safe — a session
-     * that held none reports "no face" rather than inventing a rectangle.
+     * Snapshots the metadata a Discord embed carries: the user's name from the personal-
+     * information page, the fire time and the device. The scan mode, the face rectangle and
+     * the risk score are deliberately not reported.
      */
-    private fun currentDiscordAlert(): DiscordAlert {
-        val face = sessionFace
-        return DiscordAlert(
-            score = current.score,
-            riskLabel = current.riskLevel.label(),
-            modeLabel = getString(
-                if (activeSessionMode() == ScanMode.WARNING) R.string.mode_warning
-                else R.string.mode_safe
-            ),
-            faceLeft = face?.left,
-            faceTop = face?.top,
-            faceWidth = face?.width(),
-            faceHeight = face?.height(),
-            timestampMs = System.currentTimeMillis(),
-            device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
-        )
-    }
+    private fun currentDiscordAlert() = DiscordAlert(
+        userName = ProtectionState.getUserName(this),
+        timestampMs = System.currentTimeMillis(),
+        device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
+    )
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

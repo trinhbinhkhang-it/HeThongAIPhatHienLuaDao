@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================
+     SafeCallsCT - Personal information page
+     Reached from the top-right person icon on Page 1. Same header
+     pattern and design tokens as the other pages; no inline hex.
+     ============================================================ -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_page">
+
+    <!-- ===== Header: logo tile + wordmark ===== -->
+    <LinearLayout
+        android:id="@+id/app_header"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="@dimen/space_xl"
+        android:layout_marginEnd="@dimen/screen_margin"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <ImageView
+            android:layout_width="@dimen/logo_tile"
+            android:layout_height="@dimen/logo_tile"
+            android:background="@drawable/bg_app_logo"
+            android:contentDescription="@string/app_name"
+            android:padding="@dimen/space_sm"
+            android:src="@drawable/ic_shield"
+            app:tint="@color/text_on_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_md"
+            android:text="@string/app_name"
+            android:textAppearance="@style/TextAppearance.SafeCallsCT.Title"
+            android:textColor="@color/text_primary" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginTop="@dimen/space_lg"
+        android:clipToPadding="false"
+        android:paddingBottom="@dimen/space_xxl"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_header">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="@dimen/space_xxl"
+            android:layout_marginEnd="@dimen/space_xxl"
+            android:background="@drawable/bg_status_card"
+            android:orientation="vertical"
+            android:padding="@dimen/card_padding">
+
+            <TextView
+                android:id="@+id/profile_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/profile_title"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Headline"
+                android:textColor="@color/text_primary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/profile_intro"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                android:textColor="@color/text_secondary" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:hint="@string/profile_name_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_user_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="textPersonName"
+                    android:maxLength="60"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/profile_note"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_profile_save"
+                style="@style/Widget.SafeCallsCT.Button.Pill"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_profile_save"
+                android:textColor="@color/text_on_primary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_profile_back"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_profile_back"
+                android:textColor="@color/text_secondary" />
+        </LinearLayout>
+    </ScrollView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

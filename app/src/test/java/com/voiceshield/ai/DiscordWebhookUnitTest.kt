@@ -7,9 +7,9 @@ import org.junit.Test
 
 /**
  * Pure-JVM tests for the Discord alert mirror: the developer-entered webhook URL gate, the
- * JSON escaping, and the embed body itself.
+ * JSON escaping, the embed body, the multipart upload framing and the high-risk score roll.
  *
- * All three are top-level Android-free functions (same convention as [sanitizeInterval] and
+ * All of these are top-level Android-free functions (same convention as [sanitizeInterval] and
  * [isTripleClick]), so they are testable without Robolectric or an emulator. The Android
  * sender ([DiscordNotifier]) is deliberately *not* exercised here — it needs a real socket.
  */
@@ -60,13 +60,7 @@ class DiscordWebhookUnitTest {
     // ── Embed body ──
 
     private fun sampleAlert() = DiscordAlert(
-        score = 84,
-        riskLabel = "RỦI RO CAO",
-        modeLabel = "Chế độ Cảnh Báo",
-        faceLeft = 120,
-        faceTop = 240,
-        faceWidth = 320,
-        faceHeight = 320,
+        userName = "Nguyễn Văn A",
         timestampMs = 1_700_000_000_000L,
         device = "Google Pixel 7 (Android 14)"
     )
@@ -76,20 +70,42 @@ class DiscordWebhookUnitTest {
         val json = discordEmbedPayload(sampleAlert())
         assertTrue("must be a single embed", json.startsWith("{\"embeds\":[{"))
         assertTrue(json.contains("\"color\":$DISCORD_EMBED_COLOR"))
-        assertTrue("risk score", json.contains("84%"))
-        assertTrue("mode", json.contains("Chế độ Cảnh Báo"))
-        assertTrue("risk label", json.contains("RỦI RO CAO"))
-        assertTrue("face rect", json.contains("x=120, y=240, w=320, h=320"))
+        assertTrue("user name field", json.contains("Tên người dùng"))
+        assertTrue("user name value", json.contains("Nguyễn Văn A"))
+        assertTrue("risk label", json.contains("Nguy cơ lừa đảo qua cuộc gọi video"))
         assertTrue("device", json.contains("Google Pixel 7 (Android 14)"))
         assertTrue("footer", json.contains("SafeCallsCT"))
     }
 
+    /** The product asked for the score, the mode and the face rectangle to be dropped. */
     @Test
-    fun missingFace_reportsNoFaceInsteadOfAFakeRectangle() {
-        val noFace = sampleAlert().copy(
-            faceLeft = null, faceTop = null, faceWidth = null, faceHeight = null
-        )
-        assertTrue(discordEmbedPayload(noFace).contains("không có khuôn mặt trong phiên"))
+    fun payload_omitsScoreModeAndFaceRectangle() {
+        val json = discordEmbedPayload(sampleAlert())
+        assertFalse("no score field", json.contains("Điểm rủi ro"))
+        assertFalse("no percent value", json.contains("%"))
+        assertFalse("no scan-mode field", json.contains("Chế độ"))
+        assertFalse("no face-rectangle field", json.contains("Vùng khuôn mặt"))
+    }
+
+    @Test
+    fun blankName_isReportedAsAPlaceholder() {
+        val json = discordEmbedPayload(sampleAlert().copy(userName = "  "))
+        assertTrue(json.contains("Tên người dùng"))
+        assertTrue(json.contains("—"))
+    }
+
+    @Test
+    fun payload_withImage_pointsTheEmbedAtTheAttachment() {
+        val json = discordEmbedPayload(sampleAlert(), hasImage = true)
+        assertTrue(json.contains("\"image\":{\"url\":\"attachment://$DISCORD_SCREENSHOT_FILENAME\"}"))
+        assertTrue("a screenshot field is advertised", json.contains("Ảnh chụp màn hình"))
+    }
+
+    @Test
+    fun payload_withoutImage_hasNoImageObject() {
+        val json = discordEmbedPayload(sampleAlert(), hasImage = false)
+        assertFalse(json.contains("attachment://"))
+        assertFalse(json.contains("Ảnh chụp màn hình"))
     }
 
     @Test
@@ -107,5 +123,53 @@ class DiscordWebhookUnitTest {
         val json = discordEmbedPayload(sampleAlert().copy(device = "X\"},{\"name\":\"evil"))
         assertFalse("the injected key must not appear unescaped", json.contains("\"name\":\"evil\""))
         assertTrue(json.contains("X\\\"},{\\\"name\\\":\\\"evil"))
+    }
+
+    // ── Multipart body ──
+
+    @Test
+    fun multipartBody_framesPayloadAndFile() {
+        val json = "{\"embeds\":[]}"
+        val image = byteArrayOf(1, 2, 3, 4)
+        val body = multipartBody("BOUND", json, image)
+        val text = String(body, Charsets.ISO_8859_1)
+        assertTrue(text.contains("Content-Disposition: form-data; name=\"payload_json\""))
+        assertTrue(text.contains("\"embeds\":[]"))
+        assertTrue(
+            text.contains(
+                "Content-Disposition: form-data; name=\"files[0]\"; filename=\"$DISCORD_SCREENSHOT_FILENAME\""
+            )
+        )
+        assertTrue(text.contains("Content-Type: image/jpeg"))
+        assertTrue("closing boundary", text.trimEnd().endsWith("--BOUND--"))
+        // The JPEG bytes survive verbatim, sandwiched between the two parts.
+        assertTrue("image bytes must be present unchanged", body.indexOfBytes(image) >= 0)
+    }
+
+    private fun ByteArray.indexOfBytes(needle: ByteArray): Int {
+        if (needle.isEmpty()) return -1
+        outer@ for (i in 0..(size - needle.size)) {
+            for (j in needle.indices) if (this[i + j] != needle[j]) continue@outer
+            return i
+        }
+        return -1
+    }
+
+    // ── High-risk score ──
+
+    @Test
+    fun highRiskScore_isAlwaysInside80To92() {
+        repeat(500) {
+            val score = randomHighRiskScore()
+            assertTrue("score $score under min", score >= HIGH_RISK_SCORE_MIN)
+            assertTrue("score $score over max", score <= HIGH_RISK_SCORE_MAX)
+        }
+    }
+
+    @Test
+    fun highRiskScore_canReachBothBounds() {
+        val scores = (0 until 2_000).map { randomHighRiskScore() }.toSet()
+        assertTrue("min boundary reachable", scores.contains(HIGH_RISK_SCORE_MIN))
+        assertTrue("max boundary reachable", scores.contains(HIGH_RISK_SCORE_MAX))
     }
 }

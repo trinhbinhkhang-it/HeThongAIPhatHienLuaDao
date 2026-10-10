@@ -55,6 +55,14 @@
             android:parentActivityName=".MainActivity"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Personal-information page: top-right person icon on Page 1. -->
+        <activity
+            android:name=".PersonalInfoActivity"
+            android:exported="false"
+            android:label="@string/profile_title"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".audio.DiagnosticService"
             android:foregroundServiceType="microphone"

@@ -22,7 +22,7 @@
         android:layout_marginEnd="@dimen/screen_margin"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintEnd_toStartOf="@id/btn_profile"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
@@ -43,6 +43,23 @@
             android:textAppearance="@style/TextAppearance.SafeCallsCT.Title"
             android:textColor="@color/text_primary" />
     </LinearLayout>
+
+    <!-- Profile: the personal-information page. A person silhouette (never a shield, so it
+         reads apart from the floating bubble), 48dp touch target around a 24dp glyph. -->
+    <ImageButton
+        android:id="@+id/btn_profile"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_marginEnd="@dimen/space_md"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/profile_title"
+        android:padding="@dimen/space_md"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_person"
+        app:layout_constraintBottom_toBottomOf="@id/app_header"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="@id/app_header"
+        app:tint="@color/mint_600" />
 
     <!-- ===== Home content: the single status card ===== -->
     <LinearLayout

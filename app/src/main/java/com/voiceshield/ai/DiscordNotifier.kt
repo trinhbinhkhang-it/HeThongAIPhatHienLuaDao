@@ -15,20 +15,16 @@ import java.util.concurrent.Executors
  * Deliberately a plain data holder of primitives only — no [android.graphics.Rect], no
  * [android.os.Build] — so [discordEmbedPayload] stays a top-level Android-free function and
  * can be pinned by a JVM unit test, exactly like [sanitizeInterval] and [scanDelayMs].
- * The service resolves the face rectangle and the device string into this shape at the
- * moment the alert fires.
+ * The service resolves the device string and the user name into this shape at the moment the
+ * alert fires.
  *
- * @param faceLeft/faceTop/faceWidth/faceHeight the saved session face in screen pixels, all
- *   null together when the session held no face.
+ * The face rectangle, the scan mode and the risk score are deliberately *not* carried: the
+ * embed reports the result and who/where it fired for, not the geometry or score behind it.
+ *
+ * @param userName the name from the personal-information page, or blank when the user set none.
  */
 data class DiscordAlert(
-    val score: Int,
-    val riskLabel: String,
-    val modeLabel: String,
-    val faceLeft: Int?,
-    val faceTop: Int?,
-    val faceWidth: Int?,
-    val faceHeight: Int?,
+    val userName: String,
     val timestampMs: Long,
     val device: String
 )
@@ -83,23 +79,27 @@ fun escapeJson(value: String): String {
 /** Terracotta (#C2553A) — the app's high-risk accent, in the decimal Discord wants. */
 const val DISCORD_EMBED_COLOR = 0xC2553A
 
+/** The single risk label every alert reports, per the product wording. */
+const val DISCORD_RISK_LABEL = "Nguy cơ lừa đảo qua cuộc gọi video"
+
+/** The attachment filename the embed references via `attachment://`. */
+const val DISCORD_SCREENSHOT_FILENAME = "screenshot.jpg"
+
 /**
- * Builds the Discord webhook body: a single rich embed carrying **metadata only** — risk
- * score, mode, face rectangle, timestamp and device. No image, no frame, nothing the
- * capture path produced beyond the numbers already on the bubble.
+ * Builds the Discord webhook body: a single rich embed. The fields are exactly the ones the
+ * product asked for — user name, risk score, label, time and device — plus an optional
+ * screenshot reference. The scan mode and the face rectangle are deliberately omitted.
  *
  * @param isTest marks the payload the "Test" button sends, so a colleague can tell a probe
  *   from a real alert.
+ * @param hasImage when true the embed points at the attached screenshot so Discord renders it
+ *   inline.
  */
-fun discordEmbedPayload(alert: DiscordAlert, isTest: Boolean = false): String {
-    val face = if (
-        alert.faceLeft != null && alert.faceTop != null &&
-        alert.faceWidth != null && alert.faceHeight != null
-    ) {
-        "x=${alert.faceLeft}, y=${alert.faceTop}, w=${alert.faceWidth}, h=${alert.faceHeight}"
-    } else {
-        "không có khuôn mặt trong phiên"
-    }
+fun discordEmbedPayload(
+    alert: DiscordAlert,
+    isTest: Boolean = false,
+    hasImage: Boolean = false
+): String {
     val instant = Instant.ofEpochMilli(alert.timestampMs)
     val timeIso = instant.toString()
     val timeLocal = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -111,19 +111,19 @@ fun discordEmbedPayload(alert: DiscordAlert, isTest: Boolean = false): String {
     } else {
         "Phát hiện dấu hiệu thao túng khuôn mặt trong cuộc gọi."
     }
+    val name = alert.userName.ifBlank { "—" }
 
     fun field(name: String, value: String, inline: Boolean): String =
         "{\"name\":\"${escapeJson(name)}\",\"value\":\"${escapeJson(value)}\"," +
             "\"inline\":$inline}"
 
-    val fields = listOf(
-        field("Điểm rủi ro", "${alert.score}%", true),
-        field("Chế độ", alert.modeLabel, true),
-        field("Nhãn", alert.riskLabel, true),
-        field("Vùng khuôn mặt", face, false),
-        field("Thời gian", timeLocal, true),
-        field("Thiết bị", alert.device, false)
-    ).joinToString(",")
+    val fields = buildList {
+        add(field("Tên người dùng", name, false))
+        add(field("Nhãn", DISCORD_RISK_LABEL, false))
+        add(field("Thời gian", timeLocal, true))
+        add(field("Thiết bị", alert.device, false))
+        if (hasImage) add(field("Ảnh chụp màn hình", "Đính kèm bên dưới", false))
+    }.joinToString(",")
 
     return buildString {
         append("{\"embeds\":[{")
@@ -132,9 +132,47 @@ fun discordEmbedPayload(alert: DiscordAlert, isTest: Boolean = false): String {
         append("\"color\":$DISCORD_EMBED_COLOR,")
         append("\"timestamp\":\"${escapeJson(timeIso)}\",")
         append("\"fields\":[$fields],")
+        if (hasImage) {
+            append("\"image\":{\"url\":\"attachment://$DISCORD_SCREENSHOT_FILENAME\"},")
+        }
         append("\"footer\":{\"text\":\"SafeCallsCT\"}")
         append("}]}")
     }
+}
+
+/**
+ * Assembles a `multipart/form-data` body for Discord: the JSON payload goes in a
+ * `payload_json` part and the screenshot in a `files[0]` part, which is what lets a webhook
+ * post carry an image with no hosting and no dependency. Top-level and Android-free so the
+ * boundary framing is unit-testable.
+ *
+ * @param boundary a unique token; the caller sets the same value in the request's
+ *   `Content-Type` header.
+ */
+fun multipartBody(
+    boundary: String,
+    payloadJson: String,
+    imageBytes: ByteArray,
+    filename: String = DISCORD_SCREENSHOT_FILENAME
+): ByteArray {
+    val crlf = "\r\n"
+    val head = buildString {
+        append("--$boundary$crlf")
+        append("Content-Disposition: form-data; name=\"payload_json\"$crlf")
+        append("Content-Type: application/json$crlf$crlf")
+        append(payloadJson)
+        append(crlf)
+        append("--$boundary$crlf")
+        append("Content-Disposition: form-data; name=\"files[0]\"; filename=\"$filename\"$crlf")
+        append("Content-Type: image/jpeg$crlf$crlf")
+    }.toByteArray(Charsets.UTF_8)
+    val tail = "$crlf--$boundary--$crlf".toByteArray(Charsets.UTF_8)
+
+    val out = ByteArray(head.size + imageBytes.size + tail.size)
+    System.arraycopy(head, 0, out, 0, head.size)
+    System.arraycopy(imageBytes, 0, out, head.size, imageBytes.size)
+    System.arraycopy(tail, 0, out, head.size + imageBytes.size, tail.size)
+    return out
 }
 
 /**
@@ -151,10 +189,15 @@ object DiscordNotifier {
     }
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    /** @param onResult `(success, httpCode)`; `httpCode` is -1 when the request never landed. */
+    /**
+     * @param imageBytes when non-null, the screenshot is attached as `files[0]` via
+     *   `multipart/form-data`; the embed must already reference it (`hasImage = true`).
+     * @param onResult `(success, httpCode)`; `httpCode` is -1 when the request never landed.
+     */
     fun send(
         webhookUrl: String,
         payloadJson: String,
+        imageBytes: ByteArray? = null,
         onResult: (Boolean, Int) -> Unit = { _, _ -> }
     ) {
         executor.execute {
@@ -168,9 +211,25 @@ object DiscordNotifier {
                     connection.connectTimeout = 10_000
                     connection.readTimeout = 10_000
                     connection.useCaches = false
-                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     connection.setRequestProperty("User-Agent", "SafeCallsCT")
-                    connection.outputStream.use { it.write(payloadJson.toByteArray(Charsets.UTF_8)) }
+                    if (imageBytes != null) {
+                        val boundary = "----SafeCallsCTBoundary${System.currentTimeMillis()}"
+                        connection.setRequestProperty(
+                            "Content-Type",
+                            "multipart/form-data; boundary=$boundary"
+                        )
+                        val body = multipartBody(boundary, payloadJson, imageBytes)
+                        connection.setFixedLengthStreamingMode(body.size)
+                        connection.outputStream.use { it.write(body) }
+                    } else {
+                        connection.setRequestProperty(
+                            "Content-Type",
+                            "application/json; charset=utf-8"
+                        )
+                        connection.outputStream.use {
+                            it.write(payloadJson.toByteArray(Charsets.UTF_8))
+                        }
+                    }
                     code = connection.responseCode
                     ok = code in 200..299
                     runCatching {

@@ -86,6 +86,10 @@ object ProtectionState {
     // Hidden developer page — Discord alert mirror.
     private const val KEY_DISCORD_WEBHOOK = "discord_webhook"
     private const val KEY_DISCORD_ENABLED = "discord_enabled"
+    private const val KEY_DISCORD_SCREENSHOT = "discord_screenshot"
+
+    // Personal-information page.
+    private const val KEY_USER_NAME = "user_name"
 
     // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
     // so reordering an enum can never silently re-map a user's saved choice.
@@ -219,7 +223,36 @@ object ProtectionState {
         prefs(context).edit()
             .putBoolean(KEY_DISCORD_ENABLED, false)
             .putString(KEY_DISCORD_WEBHOOK, "")
+            .putBoolean(KEY_DISCORD_SCREENSHOT, false)
             .apply()
+    }
+
+    /**
+     * Hidden developer option "Gửi ảnh chụp màn hình" — attach the newest face-bearing
+     * screen frame to the Discord alert.
+     *
+     * Defaults to **off** and is only shown on the hidden page while the Discord mirror
+     * itself is on. When on, [FaceFrameCache] holds the most recent frame that contained a
+     * face and the alert attaches it.
+     */
+    fun isDiscordScreenshotEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DISCORD_SCREENSHOT, false)
+
+    /** Persists the screenshot toggle. No broadcast: the capture path reads it per frame. */
+    fun setDiscordScreenshotEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DISCORD_SCREENSHOT, enabled).apply()
+    }
+
+    /**
+     * Personal-information page — the user's display name, shown in the Discord alert as
+     * "Tên người dùng". Defaults to blank; a blank name is reported as "—" in the embed.
+     */
+    fun getUserName(context: Context): String =
+        prefs(context).getString(KEY_USER_NAME, "").orEmpty()
+
+    /** Persists the user's name. */
+    fun setUserName(context: Context, name: String) {
+        prefs(context).edit().putString(KEY_USER_NAME, name.trim()).apply()
     }
 
     /**

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.View
 import android.widget.CompoundButton
 import android.widget.RadioGroup
 import android.widget.TextView
@@ -116,6 +117,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var discordWebhookInput: TextInputEditText
     private lateinit var discordEnabledSwitch: SwitchMaterial
     private lateinit var discordTestButton: MaterialButton
+    private lateinit var discordScreenshotSwitch: SwitchMaterial
+    private lateinit var discordScreenshotRow: View
 
     // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
     // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
@@ -177,11 +180,24 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private val discordEnabledListener =
         CompoundButton.OnCheckedChangeListener { _, checked ->
             ProtectionState.setDiscordEnabled(this, checked)
+            // The screenshot option exists only as a child of the mirror, so it appears and
+            // disappears with the switch that arms it.
+            renderDiscordOptions()
             Toast.makeText(
                 this,
                 if (checked) R.string.hidden_discord_on else R.string.hidden_discord_off,
                 Toast.LENGTH_SHORT
             ).show()
+        }
+
+    /**
+     * Persists the screenshot option the moment it flips. Unlike the mirror switch it sends
+     * no toast: it is a sub-option of a switch that already confirmed itself, and the capture
+     * path re-reads the flag per frame with no listener.
+     */
+    private val discordScreenshotListener =
+        CompoundButton.OnCheckedChangeListener { _, checked ->
+            ProtectionState.setDiscordScreenshotEnabled(this, checked)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -197,6 +213,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
         discordWebhookInput = findViewById(R.id.input_discord_webhook)
         discordEnabledSwitch = findViewById(R.id.switch_discord_enabled)
         discordTestButton = findViewById(R.id.btn_discord_test)
+        discordScreenshotSwitch = findViewById(R.id.switch_discord_screenshot)
+        discordScreenshotRow = findViewById(R.id.discord_screenshot_row)
         entryGroup = findViewById(R.id.group_scan_mode_entry)
         holdDurationGroup = findViewById(R.id.group_hold_duration)
         autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
@@ -218,7 +236,12 @@ class HiddenSettingsActivity : AppCompatActivity() {
         discordWebhookInput.addTextChangedListener(
             afterTextChangedWatcher { renderDiscordState() }
         )
+        // The screenshot sub-option: echoed before its listener is attached, and shown only
+        // when the mirror is armed.
+        discordScreenshotSwitch.isChecked = ProtectionState.isDiscordScreenshotEnabled(this)
+        discordScreenshotSwitch.setOnCheckedChangeListener(discordScreenshotListener)
         renderDiscordState()
+        renderDiscordOptions()
 
         // §1–§3/§7 are applied on change for the same reason, and bound *before* the
         // listener is attached so echoing the persisted selection cannot re-save it.
@@ -267,7 +290,11 @@ class HiddenSettingsActivity : AppCompatActivity() {
         discordEnabledSwitch.setOnCheckedChangeListener(null)
         discordEnabledSwitch.isChecked = false
         discordEnabledSwitch.setOnCheckedChangeListener(discordEnabledListener)
+        discordScreenshotSwitch.setOnCheckedChangeListener(null)
+        discordScreenshotSwitch.isChecked = false
+        discordScreenshotSwitch.setOnCheckedChangeListener(discordScreenshotListener)
         discordWebhookInput.setText("")
+        renderDiscordOptions()
         // …and the four developer_setting_page.md interaction settings, back to single
         // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
         // alone: it is not one of these settings, and §8 requires it to survive.
@@ -291,7 +318,16 @@ class HiddenSettingsActivity : AppCompatActivity() {
         // Remember the field as the configured webhook too: testing is the moment the
         // developer asserts this is the URL, so it doubles as Save for the URL.
         ProtectionState.setDiscordWebhook(this, url)
-        DiscordNotifier.send(url, discordEmbedPayload(sampleDiscordAlert(), isTest = true)) { ok, code ->
+        // If a face-bearing frame is cached and the screenshot option is on, include it so the
+        // test also exercises the multipart path.
+        val screenshot =
+            if (ProtectionState.isDiscordScreenshotEnabled(this)) FaceFrameCache.latestJpeg else null
+        val payload = discordEmbedPayload(
+            sampleDiscordAlert(),
+            isTest = true,
+            hasImage = screenshot != null
+        )
+        DiscordNotifier.send(url, payload, screenshot) { ok, code ->
             val message = if (ok) getString(R.string.discord_test_sent)
             else getString(R.string.discord_test_failed, code)
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
@@ -305,17 +341,21 @@ class HiddenSettingsActivity : AppCompatActivity() {
     }
 
     /**
+     * Shows the screenshot sub-option only while the mirror is armed, per the product rule
+     * that it is a child of "Gửi cảnh báo tới Discord". Called on create and on every flip of
+     * that switch.
+     */
+    private fun renderDiscordOptions() {
+        discordScreenshotRow.visibility = if (discordEnabledSwitch.isChecked) View.VISIBLE else View.GONE
+    }
+
+    /**
      * The metadata a "Test" send carries — fixed sample values, since a test is about the
-     * webhook, not a live session. Device data is real so the embed shows where it came from.
+     * webhook, not a live session. The name is the real one from the personal-information
+     * page (blank shows as "—"), and device data is real so the embed shows where it came from.
      */
     private fun sampleDiscordAlert() = DiscordAlert(
-        score = 84,
-        riskLabel = getString(R.string.risk_high),
-        modeLabel = getString(R.string.mode_warning),
-        faceLeft = 120,
-        faceTop = 240,
-        faceWidth = 320,
-        faceHeight = 320,
+        userName = ProtectionState.getUserName(this),
         timestampMs = System.currentTimeMillis(),
         device = "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
             "(Android ${android.os.Build.VERSION.RELEASE})"
