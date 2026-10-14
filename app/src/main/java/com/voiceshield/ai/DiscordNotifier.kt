@@ -80,7 +80,7 @@ fun escapeJson(value: String): String {
 const val DISCORD_EMBED_COLOR = 0xC2553A
 
 /** The single risk label every alert reports, per the product wording. */
-const val DISCORD_RISK_LABEL = "Nguy cơ lừa đảo qua cuộc gọi video"
+const val ALERT_RISK_LABEL = "Nguy cơ lừa đảo qua cuộc gọi video"
 
 /** The attachment filename the embed references via `attachment://`. */
 const val DISCORD_SCREENSHOT_FILENAME = "screenshot.jpg"
@@ -119,7 +119,7 @@ fun discordEmbedPayload(
 
     val fields = buildList {
         add(field("Tên người dùng", name, false))
-        add(field("Nhãn", DISCORD_RISK_LABEL, false))
+        add(field("Nhãn", ALERT_RISK_LABEL, false))
         add(field("Thời gian", timeLocal, true))
         add(field("Thiết bị", alert.device, false))
         if (hasImage) add(field("Ảnh chụp màn hình", "Đính kèm bên dưới", false))

@@ -2163,6 +2163,7 @@ class FloatingBubbleService : Service() {
                 // The notification above still rides the timer path; the mirror deliberately
                 // does not, or a single session would post twice and the early one with no score.
                 mirrorHighRiskToDiscord()
+                notifyZalo()
             }
         } else {
             postResult(900) { update(DetectionResult(24, RiskLevel.NORMAL)) }
@@ -2309,6 +2310,28 @@ class FloatingBubbleService : Service() {
         timestampMs = System.currentTimeMillis(),
         device = "${Build.MANUFACTURER} ${Build.MODEL} (Android ${Build.VERSION.RELEASE})"
     )
+
+    /**
+     * Hidden developer "ZALO BOT" — sends the high-risk result as a text message through the
+     * Zalo Bot Platform.
+     *
+     * Reads the switch, the token and the chat id at send time, so a change on the hidden page
+     * applies to the next alert with no listener; nothing is sent unless the switch is on and
+     * both a well-formed token and a chat id are present. The same fire point as Discord, so
+     * the two channels always report the same result.
+     */
+    private fun notifyZalo() {
+        val token = ProtectionState.getZaloToken(this)
+        val chatId = ProtectionState.getZaloChatId(this)
+        if (!ProtectionState.isZaloEnabled(this)) return
+        if (!isValidZaloBotToken(token) || chatId.isBlank()) return
+        val alert = currentDiscordAlert()
+        ZaloNotifier.send(
+            token,
+            chatId,
+            zaloAlertMessage(alert.userName, ALERT_RISK_LABEL, alert.timestampMs, alert.device)
+        )
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

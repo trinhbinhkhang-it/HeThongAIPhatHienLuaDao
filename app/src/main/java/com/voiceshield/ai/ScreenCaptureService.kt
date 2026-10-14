@@ -47,7 +47,6 @@ class ScreenCaptureService : Service() {
     private var lastSampleTimeMs = 0L
     private var windowStartedAtMs = 0L
     private var samplesInWindow = 0
-    private var samplingRate = DEFAULT_SAMPLING_RATE
     private var windowSizeMs = DEFAULT_WINDOW_SIZE_SECONDS * 1_000L
     private var aggregation = DEFAULT_AGGREGATION
     @Volatile private var isFaceDetectionRunning = false
@@ -86,7 +85,6 @@ class ScreenCaptureService : Service() {
             return START_NOT_STICKY
         }
         publishStatus("Capture starting")
-        samplingRate = intent.getIntExtra(EXTRA_SAMPLING_RATE, DEFAULT_SAMPLING_RATE).coerceIn(1, 10)
         windowSizeMs = intent.getIntExtra(EXTRA_WINDOW_SIZE_SECONDS, DEFAULT_WINDOW_SIZE_SECONDS)
             .coerceIn(1, 60) * 1_000L
         aggregation = intent.getStringExtra(EXTRA_AGGREGATION) ?: DEFAULT_AGGREGATION
@@ -117,7 +115,13 @@ class ScreenCaptureService : Service() {
                 val image = availableReader.acquireLatestImage()
                     ?: return@setOnImageAvailableListener
                 val now = SystemClock.elapsedRealtime()
-                if (now - lastSampleTimeMs < 1_000L / samplingRate) {
+                // Live read: the hidden page's frame rate applies to the very next frame, with
+                // no restart, broadcast or re-grant of the projection. `samplingIntervalMs`
+                // turns the developer's frames-per-second into the minimum gap between frames.
+                val intervalMs = samplingIntervalMs(
+                    ProtectionState.getSamplingFps(this@ScreenCaptureService)
+                )
+                if (now - lastSampleTimeMs < intervalMs) {
                     image.close()
                     return@setOnImageAvailableListener
                 }
@@ -668,7 +672,6 @@ class ScreenCaptureService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val TAG = "ScreenCapturePOC"
         private const val FRAME_LOG_INTERVAL_MS = 1_000L
-        private const val DEFAULT_SAMPLING_RATE = 1
         private const val DEFAULT_WINDOW_SIZE_SECONDS = 5
         private const val DEFAULT_AGGREGATION = "average"
         private const val MIN_FACE_SIZE = 0.1f

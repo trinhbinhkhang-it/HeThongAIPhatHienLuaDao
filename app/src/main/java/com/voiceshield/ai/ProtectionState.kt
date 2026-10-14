@@ -68,6 +68,40 @@ fun scanDelayMs(
 }
 
 /**
+ * Bounds for the hidden "frame-analysis rate" performance setting, in frames per second.
+ *
+ * The floor is deliberately below 1 so the rate can be reduced to a single frame every two
+ * seconds on a device that overheats; the ceiling is a sane cap on how much work the capture
+ * loop will ever be asked to do.
+ */
+const val SAMPLING_FPS_MIN = 0.5f
+const val SAMPLING_FPS_MAX = 5f
+const val DEFAULT_SAMPLING_FPS = 1f
+
+/**
+ * Pure normalisation for a developer-entered frame rate.
+ *
+ * A non-finite or non-positive value falls back to [DEFAULT_SAMPLING_FPS] rather than
+ * throwing, and anything else is clamped into [SAMPLING_FPS_MIN]..[SAMPLING_FPS_MAX].
+ * Android-free, like [sanitizeInterval], so it is JVM-testable.
+ */
+fun sanitizeSamplingFps(fps: Float): Float {
+    if (fps.isNaN() || fps <= 0f) return DEFAULT_SAMPLING_FPS
+    return fps.coerceIn(SAMPLING_FPS_MIN, SAMPLING_FPS_MAX)
+}
+
+/**
+ * The minimum gap between analysed frames, in milliseconds, for [fps].
+ *
+ * `1000 / fps` is the whole rule, so 0.5 fps means one frame every 2000 ms and 5 fps means
+ * one every 200 ms. The result is always >= 1 so it can never gate every frame out.
+ */
+fun samplingIntervalMs(fps: Float): Long {
+    val framesPerSecond = sanitizeSamplingFps(fps)
+    return (1000.0 / framesPerSecond).toLong().coerceAtLeast(1L)
+}
+
+/**
  * Shared source of truth for the protection switch, the scan mode and the scan
  * roll windows, read by the Home screen, the Settings screen, the hidden
  * developer page and the floating bubble service. Backed by SharedPreferences so
@@ -88,8 +122,16 @@ object ProtectionState {
     private const val KEY_DISCORD_ENABLED = "discord_enabled"
     private const val KEY_DISCORD_SCREENSHOT = "discord_screenshot"
 
+    // Hidden developer page — Zalo Bot alert channel.
+    private const val KEY_ZALO_TOKEN = "zalo_token"
+    private const val KEY_ZALO_CHAT_ID = "zalo_chat_id"
+    private const val KEY_ZALO_ENABLED = "zalo_enabled"
+
     // Personal-information page.
     private const val KEY_USER_NAME = "user_name"
+
+    // Hidden performance setting.
+    private const val KEY_SAMPLING_FPS = "sampling_fps"
 
     // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
     // so reordering an enum can never silently re-map a user's saved choice.
@@ -228,6 +270,41 @@ object ProtectionState {
     }
 
     /**
+     * Hidden "ZALO BOT" options — the Zalo Bot Platform token and the conversation the alert
+     * is sent to. Outbound Zalo is token + `chat_id`, not a webhook URL.
+     */
+    fun getZaloToken(context: Context): String =
+        prefs(context).getString(KEY_ZALO_TOKEN, "").orEmpty()
+
+    fun setZaloToken(context: Context, token: String) {
+        prefs(context).edit().putString(KEY_ZALO_TOKEN, token.trim()).apply()
+    }
+
+    fun getZaloChatId(context: Context): String =
+        prefs(context).getString(KEY_ZALO_CHAT_ID, "").orEmpty()
+
+    fun setZaloChatId(context: Context, chatId: String) {
+        prefs(context).edit().putString(KEY_ZALO_CHAT_ID, chatId.trim()).apply()
+    }
+
+    /** The hidden switch that arms the Zalo channel. Defaults to **off**. */
+    fun isZaloEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_ZALO_ENABLED, false)
+
+    fun setZaloEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_ZALO_ENABLED, enabled).apply()
+    }
+
+    /** Restores the hidden Zalo channel to its default (off, no token, no chat id). */
+    fun resetZalo(context: Context) {
+        prefs(context).edit()
+            .putBoolean(KEY_ZALO_ENABLED, false)
+            .putString(KEY_ZALO_TOKEN, "")
+            .putString(KEY_ZALO_CHAT_ID, "")
+            .apply()
+    }
+
+    /**
      * Hidden developer option "Gửi ảnh chụp màn hình" — attach the newest face-bearing
      * screen frame to the Discord alert.
      *
@@ -253,6 +330,23 @@ object ProtectionState {
     /** Persists the user's name. */
     fun setUserName(context: Context, name: String) {
         prefs(context).edit().putString(KEY_USER_NAME, name.trim()).apply()
+    }
+
+    /**
+     * Hidden performance setting — how many frames per second the capture loop analyses.
+     *
+     * Read on every sampled frame by [ScreenCaptureService], so a change made on the hidden
+     * page applies to the next frame with no restart and no broadcast. Defaults to
+     * [DEFAULT_SAMPLING_FPS].
+     */
+    fun getSamplingFps(context: Context): Float =
+        sanitizeSamplingFps(prefs(context).getFloat(KEY_SAMPLING_FPS, DEFAULT_SAMPLING_FPS))
+
+    /** Persists the frame rate, sanitised. */
+    fun setSamplingFps(context: Context, fps: Float) {
+        prefs(context).edit()
+            .putFloat(KEY_SAMPLING_FPS, sanitizeSamplingFps(fps))
+            .apply()
     }
 
     /**

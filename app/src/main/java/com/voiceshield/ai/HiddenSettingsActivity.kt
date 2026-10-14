@@ -113,12 +113,18 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var warningMinInput: TextInputEditText
     private lateinit var warningMaxInput: TextInputEditText
     private lateinit var preview: TextView
+    private lateinit var samplingFpsInput: TextInputEditText
+    private lateinit var samplingPreview: TextView
     private lateinit var faceGateSwitch: SwitchMaterial
     private lateinit var discordWebhookInput: TextInputEditText
     private lateinit var discordEnabledSwitch: SwitchMaterial
     private lateinit var discordTestButton: MaterialButton
     private lateinit var discordScreenshotSwitch: SwitchMaterial
     private lateinit var discordScreenshotRow: View
+    private lateinit var zaloTokenInput: TextInputEditText
+    private lateinit var zaloChatIdInput: TextInputEditText
+    private lateinit var zaloEnabledSwitch: SwitchMaterial
+    private lateinit var zaloTestButton: MaterialButton
 
     // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
     // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
@@ -200,6 +206,19 @@ class HiddenSettingsActivity : AppCompatActivity() {
             ProtectionState.setDiscordScreenshotEnabled(this, checked)
         }
 
+    /**
+     * Arms the Zalo channel the moment the switch flips, exactly like the Discord one.
+     */
+    private val zaloEnabledListener =
+        CompoundButton.OnCheckedChangeListener { _, checked ->
+            ProtectionState.setZaloEnabled(this, checked)
+            Toast.makeText(
+                this,
+                if (checked) R.string.hidden_zalo_on else R.string.hidden_zalo_off,
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hidden_settings)
@@ -209,18 +228,32 @@ class HiddenSettingsActivity : AppCompatActivity() {
         warningMinInput = findViewById(R.id.input_warning_min)
         warningMaxInput = findViewById(R.id.input_warning_max)
         preview = findViewById(R.id.hidden_preview)
+        samplingFpsInput = findViewById(R.id.input_sampling_fps)
+        samplingPreview = findViewById(R.id.sampling_preview)
         faceGateSwitch = findViewById(R.id.switch_face_gate)
         discordWebhookInput = findViewById(R.id.input_discord_webhook)
         discordEnabledSwitch = findViewById(R.id.switch_discord_enabled)
         discordTestButton = findViewById(R.id.btn_discord_test)
         discordScreenshotSwitch = findViewById(R.id.switch_discord_screenshot)
         discordScreenshotRow = findViewById(R.id.discord_screenshot_row)
+        zaloTokenInput = findViewById(R.id.input_zalo_token)
+        zaloChatIdInput = findViewById(R.id.input_zalo_chat_id)
+        zaloEnabledSwitch = findViewById(R.id.switch_zalo_enabled)
+        zaloTestButton = findViewById(R.id.btn_zalo_test)
         entryGroup = findViewById(R.id.group_scan_mode_entry)
         holdDurationGroup = findViewById(R.id.group_hold_duration)
         autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
         feedbackGroup = findViewById(R.id.group_mode_feedback)
 
         bind(ProtectionState.getSafeInterval(this), ProtectionState.getWarningInterval(this))
+
+        // The frame-analysis rate: echoed, watched for a live preview, and saved with the roll
+        // windows. The capture service re-reads it every frame, so Save applies immediately.
+        samplingFpsInput.setText(formatFps(ProtectionState.getSamplingFps(this)))
+        samplingFpsInput.addTextChangedListener(
+            afterTextChangedWatcher { renderSamplingPreview() }
+        )
+        renderSamplingPreview()
 
         // The gate is applied the instant it is flipped, not on "Save": a running scan
         // listens for ACTION_FACE_GATE_CHANGED and follows the new setting immediately.
@@ -243,6 +276,16 @@ class HiddenSettingsActivity : AppCompatActivity() {
         renderDiscordState()
         renderDiscordOptions()
 
+        // The Zalo channel, bound the same way: switch and fields echoed first, listeners
+        // attached after, and the Test button gated on a usable token + chat id.
+        zaloEnabledSwitch.isChecked = ProtectionState.isZaloEnabled(this)
+        zaloTokenInput.setText(ProtectionState.getZaloToken(this))
+        zaloChatIdInput.setText(ProtectionState.getZaloChatId(this))
+        zaloEnabledSwitch.setOnCheckedChangeListener(zaloEnabledListener)
+        val zaloWatcher = afterTextChangedWatcher { renderZaloState() }
+        listOf(zaloTokenInput, zaloChatIdInput).forEach { it.addTextChangedListener(zaloWatcher) }
+        renderZaloState()
+
         // §1–§3/§7 are applied on change for the same reason, and bound *before* the
         // listener is attached so echoing the persisted selection cannot re-save it.
         bindInteraction(ProtectionState.getScanModeInteraction(this))
@@ -260,15 +303,24 @@ class HiddenSettingsActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_hidden_reset).setOnClickListener { reset() }
         findViewById<MaterialButton>(R.id.btn_hidden_back).setOnClickListener { finish() }
         discordTestButton.setOnClickListener { testDiscord() }
+        zaloTestButton.setOnClickListener { testZalo() }
     }
 
     private fun save() {
         val safe = enteredSafeInterval()
         val warning = enteredWarningInterval()
         ProtectionState.setIntervals(this, safe, warning)
+        // The frame-analysis rate, saved with the roll windows; the capture loop picks it up on
+        // the next frame.
+        ProtectionState.setSamplingFps(this, enteredSamplingFps())
+        samplingFpsInput.setText(formatFps(ProtectionState.getSamplingFps(this)))
         // The webhook URL is saved alongside the roll windows. Its switch is applied on
         // change, not here, so the "Lưu" toast never implies the mirror was (dis)armed.
         ProtectionState.setDiscordWebhook(this, discordWebhookInput.text?.toString().orEmpty())
+        // The Zalo token and chat id are saved the same way; the Zalo switch is applied on
+        // change, like Discord's.
+        ProtectionState.setZaloToken(this, zaloTokenInput.text?.toString().orEmpty())
+        ProtectionState.setZaloChatId(this, zaloChatIdInput.text?.toString().orEmpty())
         // Echo the normalised pair back: what is on screen is then exactly what is
         // persisted, even when the input needed clamping or swapping.
         bind(safe, warning)
@@ -295,11 +347,23 @@ class HiddenSettingsActivity : AppCompatActivity() {
         discordScreenshotSwitch.setOnCheckedChangeListener(discordScreenshotListener)
         discordWebhookInput.setText("")
         renderDiscordOptions()
+        // …and the Zalo channel (off, no token, no chat id), detached the same way.
+        ProtectionState.resetZalo(this)
+        zaloEnabledSwitch.setOnCheckedChangeListener(null)
+        zaloEnabledSwitch.isChecked = false
+        zaloEnabledSwitch.setOnCheckedChangeListener(zaloEnabledListener)
+        zaloTokenInput.setText("")
+        zaloChatIdInput.setText("")
+        renderZaloState()
         // …and the four developer_setting_page.md interaction settings, back to single
         // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
         // alone: it is not one of these settings, and §8 requires it to survive.
         ProtectionState.resetScanModeInteraction(this)
         resetInteractionGroups()
+        // The performance setting returns to 1 fps along with everything else.
+        ProtectionState.setSamplingFps(this, DEFAULT_SAMPLING_FPS)
+        samplingFpsInput.setText(formatFps(DEFAULT_SAMPLING_FPS))
+        renderSamplingPreview()
         bind(DEFAULT_SAFE_INTERVAL, DEFAULT_WARNING_INTERVAL)
         Toast.makeText(this, R.string.hidden_reset, Toast.LENGTH_SHORT).show()
     }
@@ -347,6 +411,41 @@ class HiddenSettingsActivity : AppCompatActivity() {
      */
     private fun renderDiscordOptions() {
         discordScreenshotRow.visibility = if (discordEnabledSwitch.isChecked) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Sends a sample text to the Zalo bot token + chat id currently in the fields, so the
+     * channel can be verified before the switch is armed. The button is disabled unless both
+     * a well-formed token and a non-blank chat id are present.
+     */
+    private fun testZalo() {
+        val token = zaloTokenInput.text?.toString()?.trim().orEmpty()
+        val chatId = zaloChatIdInput.text?.toString()?.trim().orEmpty()
+        if (!isValidZaloBotToken(token) || chatId.isBlank()) {
+            Toast.makeText(this, R.string.zalo_test_invalid, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Testing is the moment the developer asserts these are the values, so it doubles as
+        // Save for the token and chat id.
+        ProtectionState.setZaloToken(this, token)
+        ProtectionState.setZaloChatId(this, chatId)
+        val sample = sampleDiscordAlert()
+        ZaloNotifier.send(
+            token,
+            chatId,
+            zaloAlertMessage(sample.userName, ALERT_RISK_LABEL, sample.timestampMs, sample.device)
+        ) { ok, code ->
+            val message = if (ok) getString(R.string.zalo_test_sent)
+            else getString(R.string.zalo_test_failed, code)
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /** Keeps "Gửi thử" honest: it only fires for a token + chat id that would really be used. */
+    private fun renderZaloState() {
+        zaloTestButton.isEnabled =
+            isValidZaloBotToken(zaloTokenInput.text?.toString().orEmpty()) &&
+                !zaloChatIdInput.text?.toString().isNullOrBlank()
     }
 
     /**
@@ -426,6 +525,35 @@ class HiddenSettingsActivity : AppCompatActivity() {
             warning.minSeconds,
             warning.maxSeconds
         )
+    }
+
+    /**
+     * The frame rate the developer typed, tolerant of a comma decimal separator (a Vietnamese
+     * keyboard produces "0,5"). Blank or unparseable input falls back to the default; the
+     * value is sanitised again when it is stored.
+     */
+    private fun enteredSamplingFps(): Float =
+        samplingFpsInput.text?.toString()?.trim()?.replace(',', '.')?.toFloatOrNull()
+            ?: DEFAULT_SAMPLING_FPS
+
+    /** Shows a whole number without a trailing ".0" (1, not 1.0), else the decimal as typed. */
+    private fun formatFps(fps: Float): String =
+        if (fps % 1f == 0f) fps.toInt().toString() else fps.toString()
+
+    /**
+     * Live preview of the rate that will actually be saved, sanitisation included, so a value
+     * outside 0.5–5 is seen to be clamped before the developer commits to it. Below 1 fps the
+     * equivalent "one frame every N seconds" is spelled out, since that is the form the
+     * overheating case cares about.
+     */
+    private fun renderSamplingPreview() {
+        val fps = sanitizeSamplingFps(enteredSamplingFps())
+        val intervalMs = samplingIntervalMs(fps)
+        samplingPreview.text = if (intervalMs >= 1_000L) {
+            getString(R.string.hidden_sampling_preview_slow, formatFps(fps), intervalMs / 1_000L)
+        } else {
+            getString(R.string.hidden_sampling_preview, formatFps(fps))
+        }
     }
 
     /** Blank or unparseable input falls back to [fallback] rather than blocking. */

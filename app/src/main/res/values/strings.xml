@@ -56,6 +56,11 @@
     <string name="hidden_settings_title">Cấu hình ẩn</string>
     <string name="hidden_settings_subtitle">CHỈ DÀNH CHO NHÀ PHÁT TRIỂN</string>
     <string name="hidden_settings_intro">Điều chỉnh khoảng thời gian ngẫu nhiên trước khi pop-up quét xuất hiện, sau khi chạm hai lần vào bubble.</string>
+    <string name="hidden_section_sampling">TẦN SỐ PHÂN TÍCH KHUNG HÌNH (FPS)</string>
+    <string name="hidden_sampling_hint">FPS (0,5 – 5)</string>
+    <string name="hidden_sampling_preview">Phân tích %1$s khung hình mỗi giây.</string>
+    <string name="hidden_sampling_preview_slow">Phân tích %1$s khung hình mỗi giây — tương đương 1 khung mỗi %2$d giây.</string>
+    <string name="hidden_sampling_notice">Giảm FPS giúp máy bớt nóng và mượt hơn nhưng phát hiện khuôn mặt sẽ chậm hơn. Giá trị ngoài khoảng 0,5–5 sẽ được tự động điều chỉnh.</string>
     <string name="hidden_section_safe">CHẾ ĐỘ AN TOÀN (GIÂY)</string>
     <string name="hidden_section_warning">CHẾ ĐỘ CẢNH BÁO (GIÂY)</string>
     <string name="hidden_hint_min">Tối thiểu</string>
@@ -118,6 +123,19 @@
     <string name="btn_profile_save">Lưu thông tin</string>
     <string name="btn_profile_back">Quay lại</string>
     <string name="profile_saved">Đã lưu thông tin cá nhân</string>
+
+    <!-- ===== Hidden developer page: Zalo Bot alert channel ===== -->
+    <string name="hidden_section_zalo">ZALO BOT</string>
+    <string name="hidden_zalo_title">Gửi cảnh báo tới Zalo</string>
+    <string name="hidden_zalo_summary">Khi bật, mỗi kết quả rủi ro cao sẽ được gửi tới Zalo qua Bot Token và Chat ID bên dưới.</string>
+    <string name="hidden_zalo_token_hint">Bot Token (vd: 123456789:abc…)</string>
+    <string name="hidden_zalo_chat_id_hint">Chat ID người nhận</string>
+    <string name="btn_zalo_test">Gửi thử Zalo</string>
+    <string name="hidden_zalo_on">Đã bật gửi cảnh báo tới Zalo</string>
+    <string name="hidden_zalo_off">Đã tắt gửi cảnh báo tới Zalo</string>
+    <string name="zalo_test_sent">Đã gửi tin nhắn thử tới Zalo</string>
+    <string name="zalo_test_failed">Gửi thất bại (HTTP %1$d). Kiểm tra lại Bot Token, Chat ID và kết nối mạng.</string>
+    <string name="zalo_test_invalid">Bot Token hoặc Chat ID không hợp lệ.</string>
 
     <!-- ===== Scan-mode change feedback (§7) ===== -->
     <string name="mode_changed_feedback">Chế độ quét: %1$s</string>
