@@ -125,6 +125,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var zaloChatIdInput: TextInputEditText
     private lateinit var zaloEnabledSwitch: SwitchMaterial
     private lateinit var zaloTestButton: MaterialButton
+    private lateinit var zaloFetchIdButton: MaterialButton
+    private lateinit var debugFramesSwitch: SwitchMaterial
 
     // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
     // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
@@ -219,6 +221,15 @@ class HiddenSettingsActivity : AppCompatActivity() {
             ).show()
         }
 
+    /**
+     * Turns the debug PNG writer on or off the moment it flips. The capture loop re-reads the
+     * flag per window, so no Save is needed and no broadcast is sent.
+     */
+    private val debugFramesListener =
+        CompoundButton.OnCheckedChangeListener { _, checked ->
+            ProtectionState.setDebugFramesEnabled(this, checked)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hidden_settings)
@@ -240,6 +251,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
         zaloChatIdInput = findViewById(R.id.input_zalo_chat_id)
         zaloEnabledSwitch = findViewById(R.id.switch_zalo_enabled)
         zaloTestButton = findViewById(R.id.btn_zalo_test)
+        zaloFetchIdButton = findViewById(R.id.btn_zalo_fetch_id)
+        debugFramesSwitch = findViewById(R.id.switch_debug_frames)
         entryGroup = findViewById(R.id.group_scan_mode_entry)
         holdDurationGroup = findViewById(R.id.group_hold_duration)
         autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
@@ -254,6 +267,10 @@ class HiddenSettingsActivity : AppCompatActivity() {
             afterTextChangedWatcher { renderSamplingPreview() }
         )
         renderSamplingPreview()
+
+        // The debug PNG writer: off by default and applied the instant it flips.
+        debugFramesSwitch.isChecked = ProtectionState.isDebugFramesEnabled(this)
+        debugFramesSwitch.setOnCheckedChangeListener(debugFramesListener)
 
         // The gate is applied the instant it is flipped, not on "Save": a running scan
         // listens for ACTION_FACE_GATE_CHANGED and follows the new setting immediately.
@@ -304,6 +321,7 @@ class HiddenSettingsActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.btn_hidden_back).setOnClickListener { finish() }
         discordTestButton.setOnClickListener { testDiscord() }
         zaloTestButton.setOnClickListener { testZalo() }
+        zaloFetchIdButton.setOnClickListener { fetchZaloChatId() }
     }
 
     private fun save() {
@@ -355,6 +373,11 @@ class HiddenSettingsActivity : AppCompatActivity() {
         zaloTokenInput.setText("")
         zaloChatIdInput.setText("")
         renderZaloState()
+        // …and the debug PNG writer back off.
+        ProtectionState.setDebugFramesEnabled(this, false)
+        debugFramesSwitch.setOnCheckedChangeListener(null)
+        debugFramesSwitch.isChecked = false
+        debugFramesSwitch.setOnCheckedChangeListener(debugFramesListener)
         // …and the four developer_setting_page.md interaction settings, back to single
         // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
         // alone: it is not one of these settings, and §8 requires it to survive.
@@ -446,6 +469,46 @@ class HiddenSettingsActivity : AppCompatActivity() {
         zaloTestButton.isEnabled =
             isValidZaloBotToken(zaloTokenInput.text?.toString().orEmpty()) &&
                 !zaloChatIdInput.text?.toString().isNullOrBlank()
+        // Fetching the id needs only a token: it is the step *before* a chat id exists.
+        zaloFetchIdButton.isEnabled =
+            isValidZaloBotToken(zaloTokenInput.text?.toString().orEmpty())
+    }
+
+    /**
+     * "Lấy Chat ID" — reads the most recent message sent to the bot via `getUpdates` and fills
+     * the chat id field.
+     *
+     * Zalo only reports `chat.id` once the user has written to the bot, and `getUpdates` is
+     * disabled while a webhook is configured, so the failure toasts say exactly which step is
+     * missing rather than a bare HTTP code.
+     */
+    private fun fetchZaloChatId() {
+        val token = zaloTokenInput.text?.toString()?.trim().orEmpty()
+        if (!isValidZaloBotToken(token)) {
+            Toast.makeText(this, R.string.zalo_fetch_invalid_token, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Persist the token first: fetching is the moment the developer asserts it is correct.
+        ProtectionState.setZaloToken(this, token)
+        Toast.makeText(this, R.string.zalo_fetch_searching, Toast.LENGTH_SHORT).show()
+        ZaloNotifier.fetchLatestChatId(token) { chatId, code ->
+            when {
+                !chatId.isNullOrBlank() -> {
+                    zaloChatIdInput.setText(chatId)
+                    ProtectionState.setZaloChatId(this, chatId)
+                    renderZaloState()
+                    Toast.makeText(
+                        this,
+                        getString(R.string.zalo_fetch_found, chatId),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                code == -1 ->
+                    Toast.makeText(this, R.string.zalo_fetch_network, Toast.LENGTH_SHORT).show()
+                else ->
+                    Toast.makeText(this, R.string.zalo_fetch_none, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     /**

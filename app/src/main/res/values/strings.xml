@@ -61,6 +61,8 @@
     <string name="hidden_sampling_preview">Phân tích %1$s khung hình mỗi giây.</string>
     <string name="hidden_sampling_preview_slow">Phân tích %1$s khung hình mỗi giây — tương đương 1 khung mỗi %2$d giây.</string>
     <string name="hidden_sampling_notice">Giảm FPS giúp máy bớt nóng và mượt hơn nhưng phát hiện khuôn mặt sẽ chậm hơn. Giá trị ngoài khoảng 0,5–5 sẽ được tự động điều chỉnh.</string>
+    <string name="hidden_debug_frames_title">Lưu khung hình gỡ lỗi</string>
+    <string name="hidden_debug_frames_summary">Ghi ảnh PNG toàn màn hình vào bộ nhớ ứng dụng mỗi 5 giây để gỡ lỗi. Bật sẽ tốn CPU và bộ nhớ, có thể gây nóng máy — chỉ nên bật khi cần.</string>
     <string name="hidden_section_safe">CHẾ ĐỘ AN TOÀN (GIÂY)</string>
     <string name="hidden_section_warning">CHẾ ĐỘ CẢNH BÁO (GIÂY)</string>
     <string name="hidden_hint_min">Tối thiểu</string>
@@ -136,6 +138,12 @@
     <string name="zalo_test_sent">Đã gửi tin nhắn thử tới Zalo</string>
     <string name="zalo_test_failed">Gửi thất bại (HTTP %1$d). Kiểm tra lại Bot Token, Chat ID và kết nối mạng.</string>
     <string name="zalo_test_invalid">Bot Token hoặc Chat ID không hợp lệ.</string>
+    <string name="btn_zalo_fetch_id">Lấy Chat ID</string>
+    <string name="zalo_fetch_invalid_token">Cần Bot Token hợp lệ trước khi lấy Chat ID.</string>
+    <string name="zalo_fetch_searching">Đang chờ tin nhắn… hãy nhắn cho bot trên Zalo ngay bây giờ.</string>
+    <string name="zalo_fetch_found">Đã lấy Chat ID: %1$s</string>
+    <string name="zalo_fetch_none">Không thấy tin nhắn nào. Hãy nhắn cho bot một tin rồi thử lại.</string>
+    <string name="zalo_fetch_network">Không kết nối được tới Zalo. Kiểm tra mạng và thử lại.</string>
 
     <!-- ===== Scan-mode change feedback (§7) ===== -->
     <string name="mode_changed_feedback">Chế độ quét: %1$s</string>

@@ -133,7 +133,12 @@ class ScreenCaptureService : Service() {
                     lastFrameLogTimeMs = now
                 }
                 if (now - lastFrameSaveTimeMs >= windowSizeMs) {
-                    saveDebugFrame(image)
+                    // Opt-in debug PNG writer. Read live, so flipping the hidden toggle takes
+                    // effect on the next window. The timer advances either way, so enabling it
+                    // does not immediately dump a burst of frames.
+                    if (ProtectionState.isDebugFramesEnabled(this@ScreenCaptureService)) {
+                        saveDebugFrame(image)
+                    }
                     lastFrameSaveTimeMs = now
                 }
                 detectFaces(image)

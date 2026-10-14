@@ -79,4 +79,29 @@ class ZaloNotifierUnitTest {
         val text = zaloAlertMessage("  ", ALERT_RISK_LABEL, 1_700_000_000_000L, "Pixel")
         assertTrue(text.contains("Tên người dùng: —"))
     }
+
+    // ── chat_id extraction (getUpdates / webhook) ──
+
+    @Test
+    fun extractChatId_readsTheNestedChatId() {
+        val body = """
+            {"ok":true,"result":{"message":{"from":{"id":"from-123","display_name":"Ted"},
+            "chat":{"id":"chat-abc","chat_type":"PRIVATE"},"text":"Xin chào",
+            "message_id":"m1","date":1750316131602},"event_name":"message.text.received"}}
+        """.trimIndent()
+        assertEquals("chat-abc", zaloExtractChatId(body))
+    }
+
+    /** Only `chat.id` is the reply target — `from.id` must not be mistaken for it. */
+    @Test
+    fun extractChatId_ignoresTheSenderId() {
+        val body = """{"ok":true,"result":{"from":{"id":"sender-only"}}}"""
+        assertEquals(null, zaloExtractChatId(body))
+    }
+
+    @Test
+    fun extractChatId_returnsNullWhenThereIsNoMessage() {
+        assertEquals(null, zaloExtractChatId("{\"ok\":true,\"result\":null}"))
+        assertEquals(null, zaloExtractChatId(""))
+    }
 }

@@ -134,6 +134,46 @@
                 android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
                 android:textColor="@color/text_secondary" />
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_sm">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hidden_debug_frames_title"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xxs"
+                        android:text="@string/hidden_debug_frames_summary"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_debug_frames"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:contentDescription="@string/hidden_debug_frames_title" />
+            </LinearLayout>
+
             <!-- ===== Safe Mode roll window ===== -->
             <TextView
                 android:layout_width="match_parent"
@@ -705,6 +745,15 @@
                     android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
                     android:textColor="@color/text_primary" />
             </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_zalo_fetch_id"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_zalo_fetch_id"
+                android:textColor="@color/text_secondary" />
 
             <com.google.android.material.textfield.TextInputLayout
                 style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"

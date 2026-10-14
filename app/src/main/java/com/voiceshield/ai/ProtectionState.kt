@@ -132,6 +132,7 @@ object ProtectionState {
 
     // Hidden performance setting.
     private const val KEY_SAMPLING_FPS = "sampling_fps"
+    private const val KEY_DEBUG_FRAMES = "debug_frames_enabled"
 
     // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
     // so reordering an enum can never silently re-map a user's saved choice.
@@ -347,6 +348,22 @@ object ProtectionState {
         prefs(context).edit()
             .putFloat(KEY_SAMPLING_FPS, sanitizeSamplingFps(fps))
             .apply()
+    }
+
+    /**
+     * Hidden performance setting — whether the capture loop writes a debug PNG of every window
+     * to app storage.
+     *
+     * Defaults to **off**: it downscales and PNG-encodes a full-screen frame to disk every
+     * `windowSizeMs` (5 s), which is real CPU and I/O cost with no product value, so it is opt-in
+     * for debugging only. [ScreenCaptureService] re-reads it per frame.
+     */
+    fun isDebugFramesEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEBUG_FRAMES, false)
+
+    /** Persists the debug-frame writer switch. */
+    fun setDebugFramesEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DEBUG_FRAMES, enabled).apply()
     }
 
     /**
