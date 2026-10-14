@@ -73,7 +73,17 @@ class ScreenCaptureService : Service() {
     private lateinit var captureHandler: Handler
     private lateinit var faceDetector: FaceDetector
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+        when (ProtectionState.getCaptureBackend(this)) {
+            CaptureBackend.ACCESSIBILITY -> startAccessibilityCapture()
+            CaptureBackend.MEDIA_PROJECTION -> startProjectionCapture(intent)
+        }
+
+    /**
+     * Original path: a `MediaProjection` + `VirtualDisplay` mirrors the screen into an
+     * [ImageReader], which drives [detectFaces]. Requires the consent token from the launcher.
+     */
+    private fun startProjectionCapture(intent: Intent?): Int {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
             ?: Activity.RESULT_CANCELED
         val resultData = intent?.projectionData() ?: run {
@@ -158,10 +168,69 @@ class ScreenCaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    /**
+     * Optional path: frames are pulled from [ScreenshotAccessibilityService] instead of a
+     * `MediaProjection`, so the device's single screen-capture slot stays free and the system
+     * screen recorder keeps working. No consent token is needed; the trade-off is that the user
+     * must enable the app's accessibility service, and screenshots are rate-limited.
+     */
+    private fun startAccessibilityCapture(): Int {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIFICATION_ID,
+                createNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, createNotification())
+        }
+        startAccessibilityFrameLoop()
+        Log.i(TAG, "Accessibility screen capture started")
+        publishStatus("Capture active — accessibility screenshots")
+        return START_NOT_STICKY
+    }
+
+    /**
+     * The accessibility polling loop.
+     *
+     * One screenshot is requested at a time (never overlapping an in-flight detection), and the
+     * server-side rate limit is respected via [accessibilityIntervalMs]. A missing service is
+     * surfaced as a status rather than an error, so the loop simply keeps trying until the user
+     * enables it.
+     */
+    private val accessibilityFrameLoop = object : Runnable {
+        override fun run() {
+            if (!isFaceDetectionRunning) {
+                val requested = ScreenshotAccessibilityService.capture { bitmap ->
+                    if (bitmap != null) {
+                        captureHandler.post { detectFaces(bitmap) }
+                    }
+                }
+                if (!requested) {
+                    publishStatus("Accessibility service not enabled — enable it in Settings")
+                }
+            }
+            val intervalMs = accessibilityIntervalMs(
+                ProtectionState.getSamplingFps(this@ScreenCaptureService)
+            )
+            captureHandler.postDelayed(this, intervalMs)
+        }
+    }
+
+    private fun startAccessibilityFrameLoop() {
+        captureHandler.removeCallbacks(accessibilityFrameLoop)
+        captureHandler.post(accessibilityFrameLoop)
+    }
+
+    private fun stopAccessibilityFrameLoop() {
+        captureHandler.removeCallbacks(accessibilityFrameLoop)
+    }
+
     override fun onDestroy() {
         publishStatus("Capture stopped")
         // Before the capture thread goes: an in-flight answer must not outlive its handler.
         unregisterReceiver(faceStateRequestReceiver)
+        stopAccessibilityFrameLoop()
         virtualDisplay?.release()
         imageReader?.close()
         projection?.stop()
@@ -208,37 +277,74 @@ class ScreenCaptureService : Service() {
         .setOngoing(true)
         .build()
 
+    /** Projection path: derive an [InputImage] from an [Image] and run the shared detector. */
     private fun detectFaces(image: Image?) {
-        if (image == null) return
+        val frame = image ?: return
         if (isFaceDetectionRunning) {
-            image.close()
+            frame.close()
             return
         }
 
         isFaceDetectionRunning = true
-        val inputImage = when (image.format) {
-            ImageFormat.YUV_420_888 -> InputImage.fromMediaImage(image, 0)
+        val inputImage = when (frame.format) {
+            ImageFormat.YUV_420_888 -> InputImage.fromMediaImage(frame, 0)
             PixelFormat.RGBA_8888 -> {
-                val bitmap = image.toBitmap() ?: run {
+                val bitmap = frame.toBitmap() ?: run {
                     isFaceDetectionRunning = false
-                    image.close()
+                    frame.close()
                     return
                 }
                 InputImage.fromBitmap(bitmap, 0)
             }
             else -> {
                 isFaceDetectionRunning = false
-                image.close()
+                frame.close()
                 return
             }
         }
 
+        runFaceDetection(
+            inputImage = inputImage,
+            frameWidth = frame.width,
+            frameHeight = frame.height,
+            onFaceFrame = { cacheFaceFrame(frame) },
+            onComplete = { frame.close() }
+        )
+    }
+
+    /** Accessibility path: the frame arrives as a [Bitmap] already. */
+    private fun detectFaces(bitmap: Bitmap) {
+        if (isFaceDetectionRunning) {
+            bitmap.recycle()
+            return
+        }
+        isFaceDetectionRunning = true
+        runFaceDetection(
+            inputImage = InputImage.fromBitmap(bitmap, 0),
+            frameWidth = bitmap.width,
+            frameHeight = bitmap.height,
+            onFaceFrame = { cacheFaceBitmap(bitmap) },
+            onComplete = { bitmap.recycle() }
+        )
+    }
+
+    /**
+     * The shared detector behind both backends: size/shape filtering, tracking, status, and the
+     * optional face-bearing-frame cache. [onComplete] releases the frame the caller supplied.
+     */
+    private fun runFaceDetection(
+        inputImage: InputImage,
+        frameWidth: Int,
+        frameHeight: Int,
+        onFaceFrame: () -> Unit,
+        onComplete: () -> Unit
+    ) {
         faceDetector.process(inputImage)
             .addOnSuccessListener { faces ->
                 val rawFaceCount = faces.size
                 Log.i(TAG, "Raw ML Kit faces detected: $rawFaceCount")
 
-                val frameArea = image.width.toLong() * image.height.toLong()
+                val frameArea = frameWidth.toLong() * frameHeight.toLong()
                 val minFaceArea = maxOf(1_000L, (frameArea * 0.0025f).toLong())
                 val maxFaceArea = maxOf(minFaceArea + 1L, (frameArea * 0.75f).toLong())
 
@@ -258,11 +364,11 @@ class ScreenCaptureService : Service() {
                     Log.i(TAG, "Face ${index + 1} | x=${box.left}, y=${box.top}, width=${box.width()}, height=${box.height()}")
                 }
 
-                updateTracking(validFaces.map { it.boundingBox }, image.width, image.height)
+                updateTracking(validFaces.map { it.boundingBox }, frameWidth, frameHeight)
                 // Screenshot option: keep the newest frame that actually contained a face, so
                 // the alert can attach an image of *why* it fired rather than a stale one.
                 if (validFaces.isNotEmpty() && ProtectionState.isDiscordScreenshotEnabled(this)) {
-                    cacheFaceFrame(image)
+                    onFaceFrame()
                 }
             }
             .addOnFailureListener { error ->
@@ -276,7 +382,7 @@ class ScreenCaptureService : Service() {
             }
             .addOnCompleteListener {
                 isFaceDetectionRunning = false
-                image.close()
+                onComplete()
             }
     }
 
@@ -464,22 +570,47 @@ class ScreenCaptureService : Service() {
     private fun cacheFaceFrame(image: Image) {
         val bitmap = image.toBitmap() ?: return
         try {
-            val scaled = if (bitmap.width > FACE_FRAME_MAX_WIDTH) {
-                val ratio = FACE_FRAME_MAX_WIDTH.toFloat() / bitmap.width
-                val height = (bitmap.height * ratio).toInt().coerceAtLeast(1)
-                Bitmap.createScaledBitmap(bitmap, FACE_FRAME_MAX_WIDTH, height, true)
-            } else {
-                bitmap
-            }
-            val out = ByteArrayOutputStream()
-            if (scaled.compress(Bitmap.CompressFormat.JPEG, FACE_FRAME_JPEG_QUALITY, out)) {
-                FaceFrameCache.store(out.toByteArray())
-            }
-            if (scaled !== bitmap) scaled.recycle()
+            storeFaceFrame(bitmap)
         } catch (t: Throwable) {
             Log.w(TAG, "Unable to cache face frame", t)
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    /**
+     * Accessibility backend variant: the frame is already a [Bitmap]. The caller owns it (the
+     * detection path recycles it), so it is deliberately not recycled here.
+     */
+    private fun cacheFaceBitmap(bitmap: Bitmap) {
+        try {
+            storeFaceFrame(bitmap)
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to cache face frame", t)
+        }
+    }
+
+    /**
+     * Downsizes and JPEG-compresses [bitmap] into [FaceFrameCache].
+     *
+     * Downscaled to [FACE_FRAME_MAX_WIDTH] and compressed at [FACE_FRAME_JPEG_QUALITY] so the
+     * upload stays modest; the temporary scaled copy (if any) is recycled.
+     */
+    private fun storeFaceFrame(bitmap: Bitmap) {
+        val scaled = if (bitmap.width > FACE_FRAME_MAX_WIDTH) {
+            val ratio = FACE_FRAME_MAX_WIDTH.toFloat() / bitmap.width
+            val height = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, FACE_FRAME_MAX_WIDTH, height, true)
+        } else {
+            bitmap
+        }
+        try {
+            val out = ByteArrayOutputStream()
+            if (scaled.compress(Bitmap.CompressFormat.JPEG, FACE_FRAME_JPEG_QUALITY, out)) {
+                FaceFrameCache.store(out.toByteArray())
+            }
+        } finally {
+            if (scaled !== bitmap) scaled.recycle()
         }
     }
 

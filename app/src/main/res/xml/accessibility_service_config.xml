@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Config for ScreenshotAccessibilityService.
+  canTakeScreenshot (API 30+) is the whole reason this service exists: it lets the app grab
+  screen frames WITHOUT a MediaProjection, so the system screen recorder can run at the same
+  time. No event types beyond a minimal window-state callback are requested, and no window
+  content is read.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault"
+    android:canTakeScreenshot="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="100"
+    android:summary="@string/accessibility_service_summary" />

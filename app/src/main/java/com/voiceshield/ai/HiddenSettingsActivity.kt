@@ -1,7 +1,9 @@
 package com.voiceshield.ai
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -127,6 +129,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
     private lateinit var zaloTestButton: MaterialButton
     private lateinit var zaloFetchIdButton: MaterialButton
     private lateinit var debugFramesSwitch: SwitchMaterial
+    private lateinit var captureAccessibilitySwitch: SwitchMaterial
+    private lateinit var captureBackendStatus: TextView
 
     // developer_setting_page.md §1–§3 and §7 — four single-choice groups. The RadioButtons are
     // direct children of their RadioGroup, so checking one unchecks the rest for free; that is
@@ -230,6 +234,26 @@ class HiddenSettingsActivity : AppCompatActivity() {
             ProtectionState.setDebugFramesEnabled(this, checked)
         }
 
+    /**
+     * Switches the frame source between MediaProjection and Accessibility screenshots the moment
+     * it flips.
+     *
+     * The capture service reads the backend only when it starts, so a change made while
+     * protection is already running is reported and takes effect on the next activation rather
+     * than being applied silently.
+     */
+    private val captureBackendListener =
+        CompoundButton.OnCheckedChangeListener { _, checked ->
+            ProtectionState.setCaptureBackend(
+                this,
+                if (checked) CaptureBackend.ACCESSIBILITY else CaptureBackend.MEDIA_PROJECTION
+            )
+            renderCaptureBackendStatus()
+            if (FloatingBubbleService.isProtecting(this)) {
+                Toast.makeText(this, R.string.capture_backend_restart_needed, Toast.LENGTH_LONG).show()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_hidden_settings)
@@ -253,6 +277,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
         zaloTestButton = findViewById(R.id.btn_zalo_test)
         zaloFetchIdButton = findViewById(R.id.btn_zalo_fetch_id)
         debugFramesSwitch = findViewById(R.id.switch_debug_frames)
+        captureAccessibilitySwitch = findViewById(R.id.switch_capture_accessibility)
+        captureBackendStatus = findViewById(R.id.capture_backend_status)
         entryGroup = findViewById(R.id.group_scan_mode_entry)
         holdDurationGroup = findViewById(R.id.group_hold_duration)
         autoSelectionGroup = findViewById(R.id.group_auto_mode_selection)
@@ -271,6 +297,13 @@ class HiddenSettingsActivity : AppCompatActivity() {
         // The debug PNG writer: off by default and applied the instant it flips.
         debugFramesSwitch.isChecked = ProtectionState.isDebugFramesEnabled(this)
         debugFramesSwitch.setOnCheckedChangeListener(debugFramesListener)
+
+        // The frame source: echoed, then the listener attached, with a status line + a shortcut
+        // to the Accessibility settings so the developer can see whether it is really enabled.
+        captureAccessibilitySwitch.isChecked =
+            ProtectionState.getCaptureBackend(this) == CaptureBackend.ACCESSIBILITY
+        captureAccessibilitySwitch.setOnCheckedChangeListener(captureBackendListener)
+        renderCaptureBackendStatus()
 
         // The gate is applied the instant it is flipped, not on "Save": a running scan
         // listens for ACTION_FACE_GATE_CHANGED and follows the new setting immediately.
@@ -322,6 +355,8 @@ class HiddenSettingsActivity : AppCompatActivity() {
         discordTestButton.setOnClickListener { testDiscord() }
         zaloTestButton.setOnClickListener { testZalo() }
         zaloFetchIdButton.setOnClickListener { fetchZaloChatId() }
+        findViewById<MaterialButton>(R.id.btn_open_accessibility_settings)
+            .setOnClickListener { openAccessibilitySettings() }
     }
 
     private fun save() {
@@ -378,6 +413,12 @@ class HiddenSettingsActivity : AppCompatActivity() {
         debugFramesSwitch.setOnCheckedChangeListener(null)
         debugFramesSwitch.isChecked = false
         debugFramesSwitch.setOnCheckedChangeListener(debugFramesListener)
+        // …and the frame source back to MediaProjection.
+        ProtectionState.setCaptureBackend(this, CaptureBackend.MEDIA_PROJECTION)
+        captureAccessibilitySwitch.setOnCheckedChangeListener(null)
+        captureAccessibilitySwitch.isChecked = false
+        captureAccessibilitySwitch.setOnCheckedChangeListener(captureBackendListener)
+        renderCaptureBackendStatus()
         // …and the four developer_setting_page.md interaction settings, back to single
         // click / 1 s / disabled / disabled. The selected *scan mode* is deliberately left
         // alone: it is not one of these settings, and §8 requires it to survive.
@@ -472,6 +513,39 @@ class HiddenSettingsActivity : AppCompatActivity() {
         // Fetching the id needs only a token: it is the step *before* a chat id exists.
         zaloFetchIdButton.isEnabled =
             isValidZaloBotToken(zaloTokenInput.text?.toString().orEmpty())
+    }
+
+    /**
+     * Shows which frame source is selected and, for the accessibility backend, whether the app's
+     * accessibility service is actually enabled — the one thing the developer must set up
+     * outside the app.
+     */
+    private fun renderCaptureBackendStatus() {
+        val backend = ProtectionState.getCaptureBackend(this)
+        captureBackendStatus.text = when (backend) {
+            CaptureBackend.MEDIA_PROJECTION -> getString(R.string.capture_status_projection)
+            CaptureBackend.ACCESSIBILITY ->
+                if (isScreenshotAccessibilityServiceEnabled(this)) {
+                    getString(R.string.capture_status_accessibility_ready)
+                } else {
+                    getString(R.string.capture_status_accessibility_not_enabled)
+                }
+        }
+    }
+
+    /** Opens the system Accessibility settings, where the screenshot service is enabled. */
+    private fun openAccessibilitySettings() {
+        runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            .onFailure {
+                Toast.makeText(this, R.string.accessibility_settings_unavailable, Toast.LENGTH_SHORT)
+                    .show()
+            }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The developer may have just toggled the service in Settings; refresh the status line.
+        renderCaptureBackendStatus()
     }
 
     /**

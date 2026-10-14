@@ -522,7 +522,33 @@ class MainActivity : AppCompatActivity() {
             )
             return
         }
-        requestScreenCapture()
+        when (ProtectionState.getCaptureBackend(this)) {
+            CaptureBackend.ACCESSIBILITY -> startAccessibilityProtection()
+            CaptureBackend.MEDIA_PROJECTION -> requestScreenCapture()
+        }
+    }
+
+    /**
+     * Accessibility-backend activation: no projection consent is involved. It gates on the app's
+     * accessibility service being enabled, and when it is not, sends the user straight to the
+     * Accessibility settings screen rather than failing silently.
+     */
+    private fun startAccessibilityProtection() {
+        if (!isScreenshotAccessibilityServiceEnabled(this)) {
+            Toast.makeText(this, R.string.accessibility_not_enabled, Toast.LENGTH_LONG).show()
+            runCatching { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            return
+        }
+        startFloatingBubble()
+        startAccessibilityScreenCapture()
+    }
+
+    /** Starts the capture service with no projection token; it pulls accessibility screenshots. */
+    private fun startAccessibilityScreenCapture() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, ScreenCaptureService::class.java)
+        )
     }
 
     /**

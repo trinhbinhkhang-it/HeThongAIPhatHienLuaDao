@@ -102,6 +102,50 @@ fun samplingIntervalMs(fps: Float): Long {
 }
 
 /**
+ * The minimum gap between accessibility screenshots, in milliseconds.
+ *
+ * `AccessibilityService.takeScreenshot` is rate-limited by the system and returns
+ * `ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT` when called too fast, so the accessibility backend
+ * never polls quicker than this even if the developer asks for a higher frame rate.
+ */
+const val ACCESSIBILITY_MIN_INTERVAL_MS = 700L
+
+/**
+ * Which mechanism supplies the screen frames the face detector runs on.
+ *
+ * - [MEDIA_PROJECTION] — the original path: a `MediaProjection` + `VirtualDisplay` mirrors the
+ *   screen. Continuous and consent-based, but it occupies the device's single screen-capture slot,
+ *   so the system screen recorder cannot run at the same time.
+ * - [ACCESSIBILITY] — frames come from `AccessibilityService.takeScreenshot`, which does **not**
+ *   use `MediaProjection`, so the screen recorder keeps working. Opt-in, and it needs the user to
+ *   enable the app's accessibility service.
+ */
+enum class CaptureBackend { MEDIA_PROJECTION, ACCESSIBILITY }
+
+/** The interval, in ms, when the app is behind the accessibility backend for [fps]. */
+fun accessibilityIntervalMs(fps: Float): Long =
+    maxOf(samplingIntervalMs(fps), ACCESSIBILITY_MIN_INTERVAL_MS)
+
+/**
+ * Pure check for whether our accessibility service is listed as enabled.
+ *
+ * Fed the raw `Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES` value and the component's flat and
+ * short string forms. Android stores it colon-separated and may use either form, so both are
+ * matched, case-insensitively. Android-free, so it is JVM-testable.
+ */
+fun accessibilityServiceEnabledIn(
+    enabledSetting: String?,
+    componentFlat: String,
+    componentShort: String
+): Boolean {
+    if (enabledSetting.isNullOrBlank()) return false
+    return enabledSetting.split(':').any { entry ->
+        entry.equals(componentFlat, ignoreCase = true) ||
+            entry.equals(componentShort, ignoreCase = true)
+    }
+}
+
+/**
  * Shared source of truth for the protection switch, the scan mode and the scan
  * roll windows, read by the Home screen, the Settings screen, the hidden
  * developer page and the floating bubble service. Backed by SharedPreferences so
@@ -133,6 +177,9 @@ object ProtectionState {
     // Hidden performance setting.
     private const val KEY_SAMPLING_FPS = "sampling_fps"
     private const val KEY_DEBUG_FRAMES = "debug_frames_enabled"
+
+    // Hidden frame-source setting.
+    private const val KEY_CAPTURE_BACKEND = "capture_backend"
 
     // developer_setting_page.md §1–§3 and §7. Stored as enum *names* rather than ordinals,
     // so reordering an enum can never silently re-map a user's saved choice.
@@ -364,6 +411,24 @@ object ProtectionState {
     /** Persists the debug-frame writer switch. */
     fun setDebugFramesEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_DEBUG_FRAMES, enabled).apply()
+    }
+
+    /**
+     * Hidden frame-source setting — which mechanism supplies the screen frames.
+     *
+     * Defaults to [CaptureBackend.MEDIA_PROJECTION], so nothing changes unless the developer opts
+     * into the accessibility backend. Read defensively so a hand-edited value degrades to the
+     * default rather than crashing.
+     */
+    fun getCaptureBackend(context: Context): CaptureBackend {
+        val stored = prefs(context).getString(KEY_CAPTURE_BACKEND, CaptureBackend.MEDIA_PROJECTION.name)
+        return runCatching { CaptureBackend.valueOf(stored.orEmpty()) }
+            .getOrDefault(CaptureBackend.MEDIA_PROJECTION)
+    }
+
+    /** Persists the frame-source choice. */
+    fun setCaptureBackend(context: Context, backend: CaptureBackend) {
+        prefs(context).edit().putString(KEY_CAPTURE_BACKEND, backend.name).apply()
     }
 
     /**

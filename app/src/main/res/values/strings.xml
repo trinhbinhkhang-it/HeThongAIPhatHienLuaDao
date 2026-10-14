@@ -63,6 +63,21 @@
     <string name="hidden_sampling_notice">Giảm FPS giúp máy bớt nóng và mượt hơn nhưng phát hiện khuôn mặt sẽ chậm hơn. Giá trị ngoài khoảng 0,5–5 sẽ được tự động điều chỉnh.</string>
     <string name="hidden_debug_frames_title">Lưu khung hình gỡ lỗi</string>
     <string name="hidden_debug_frames_summary">Ghi ảnh PNG toàn màn hình vào bộ nhớ ứng dụng mỗi 5 giây để gỡ lỗi. Bật sẽ tốn CPU và bộ nhớ, có thể gây nóng máy — chỉ nên bật khi cần.</string>
+
+    <!-- ===== Accessibility screenshot backend (screen-recorder coexistence) ===== -->
+    <string name="accessibility_service_label">SafeCallsCT — nguồn khung hình</string>
+    <string name="accessibility_service_summary">Cung cấp ảnh chụp màn hình cho tính năng nhận diện khuôn mặt mà không chiếm quyền ghi màn hình.</string>
+    <string name="accessibility_service_description">Khi bật, ứng dụng dùng ảnh chụp màn hình (qua Accessibility) để phát hiện khuôn mặt, nhờ đó trình ghi màn hình của hệ thống vẫn hoạt động bình thường. Dịch vụ này không đọc nội dung cửa sổ và không xử lý sự kiện; nó chỉ chụp ảnh khi tính năng bảo vệ đang bật.</string>
+    <string name="accessibility_not_enabled">Cần bật dịch vụ trợ năng của SafeCallsCT để dùng nguồn khung hình này.</string>
+    <string name="hidden_section_capture_backend">NGUỒN KHUNG HÌNH</string>
+    <string name="hidden_capture_accessibility_title">Dùng ảnh chụp qua Accessibility</string>
+    <string name="hidden_capture_accessibility_summary">Bật để lấy khung hình bằng Accessibility thay vì chia sẻ màn hình, nhờ đó trình ghi màn hình của hệ thống có thể chạy cùng lúc. Cần bật dịch vụ trợ năng của SafeCallsCT trong Cài đặt.</string>
+    <string name="btn_open_accessibility_settings">Mở cài đặt trợ năng</string>
+    <string name="capture_status_projection">Đang dùng: chia sẻ màn hình (MediaProjection). Trình ghi màn hình hệ thống sẽ bị chặn.</string>
+    <string name="capture_status_accessibility_ready">Đang dùng: ảnh chụp qua Accessibility. Dịch vụ trợ năng đã bật.</string>
+    <string name="capture_status_accessibility_not_enabled">Đã chọn ảnh chụp qua Accessibility nhưng dịch vụ trợ năng CHƯA bật. Hãy bật SafeCallsCT trong Cài đặt → Trợ năng.</string>
+    <string name="capture_backend_restart_needed">Đã đổi nguồn khung hình. Hãy tắt và bật lại bảo vệ để áp dụng.</string>
+    <string name="accessibility_settings_unavailable">Không mở được cài đặt trợ năng trên thiết bị này.</string>
     <string name="hidden_section_safe">CHẾ ĐỘ AN TOÀN (GIÂY)</string>
     <string name="hidden_section_warning">CHẾ ĐỘ CẢNH BÁO (GIÂY)</string>
     <string name="hidden_hint_min">Tối thiểu</string>
