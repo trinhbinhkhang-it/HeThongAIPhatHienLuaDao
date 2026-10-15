@@ -823,23 +823,66 @@
                 android:text="@string/btn_zalo_fetch_id"
                 android:textColor="@color/text_secondary" />
 
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/space_md"
-                android:hint="@string/hidden_zalo_chat_id_hint">
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/input_zalo_chat_id"
-                    android:layout_width="match_parent"
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:imeOptions="actionDone"
-                    android:inputType="text"
-                    android:maxLines="1"
-                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
-                    android:textColor="@color/text_primary" />
-            </com.google.android.material.textfield.TextInputLayout>
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_zalo_add_id_hint">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_zalo_add_id"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionDone"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_zalo_add_id"
+                    style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/button_height_pill"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:text="@string/btn_zalo_add_id"
+                    android:textColor="@color/text_secondary" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/zalo_recipients_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_zalo_recipients_empty"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:id="@+id/zalo_recipient_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_zalo_clear_recipients"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_zalo_clear_recipients"
+                android:textColor="@color/text_secondary" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_zalo_test"

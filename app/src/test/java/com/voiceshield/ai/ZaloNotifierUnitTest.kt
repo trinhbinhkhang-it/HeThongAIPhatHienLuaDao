@@ -104,4 +104,78 @@ class ZaloNotifierUnitTest {
         assertEquals(null, zaloExtractChatId("{\"ok\":true,\"result\":null}"))
         assertEquals(null, zaloExtractChatId(""))
     }
+
+    // ── Full chat extraction (id + type + name) ──
+
+    @Test
+    fun extractChat_readsIdTypeAndSenderName() {
+        val body = """
+            {"ok":true,"result":{"message":{"from":{"id":"f1","display_name":"Ted"},
+            "chat":{"id":"c1","chat_type":"PRIVATE"},"text":"hi"}}}
+        """.trimIndent()
+        val chat = zaloExtractChat(body)!!
+        assertEquals("c1", chat.chatId)
+        assertFalse(chat.isGroup)
+        assertEquals("Ted", chat.name)
+    }
+
+    @Test
+    fun extractChat_marksGroupsAndFallsBackToIdForName() {
+        val body = """{"ok":true,"result":{"message":{"chat":{"id":"g1","chat_type":"GROUP"}}}}"""
+        val chat = zaloExtractChat(body)!!
+        assertEquals("g1", chat.chatId)
+        assertTrue(chat.isGroup)
+        assertEquals("g1", chat.name)
+    }
+
+    // ── Recipient list (de)serialisation ──
+
+    @Test
+    fun recipients_roundTrip() {
+        val list = listOf(
+            ZaloRecipient("c1", "Ted", isGroup = false),
+            ZaloRecipient("g1", "Team", isGroup = true)
+        )
+        val parsed = parseZaloRecipients(serializeZaloRecipients(list))
+        assertEquals(list, parsed)
+    }
+
+    @Test
+    fun recipients_parseDropsMalformedAndDeduplicates() {
+        val raw = "c1|PRIVATE|Ted\n\nbrokenline\n|c2|X\nc1|PRIVATE|Ted2"
+        val parsed = parseZaloRecipients(raw)
+        assertEquals(1, parsed.size)
+        assertEquals("c1", parsed[0].chatId)
+        assertEquals("Ted", parsed[0].label)
+    }
+
+    @Test
+    fun recipients_serialiseSanitisesLabel() {
+        val serialized = serializeZaloRecipients(listOf(ZaloRecipient("c1", "a|b\nc")))
+        // The dangerous characters are stripped; the list still parses back cleanly.
+        assertEquals("c1|PRIVATE|a/b c", serialized)
+        assertEquals("a/b c", parseZaloRecipients(serialized)[0].label)
+    }
+
+    @Test
+    fun recipients_addReplacesExistingById() {
+        val list = listOf(ZaloRecipient("c1", "Old"))
+        val updated = addZaloRecipient(list, ZaloRecipient("c1", "New", isGroup = true))
+        assertEquals(1, updated.size)
+        assertEquals("New", updated[0].label)
+        assertTrue(updated[0].isGroup)
+    }
+
+    @Test
+    fun recipients_removeDropsById() {
+        val list = listOf(ZaloRecipient("c1", "A"), ZaloRecipient("c2", "B"))
+        assertEquals(listOf("c2"), removeZaloRecipient(list, "c1").map { it.chatId })
+    }
+
+    @Test
+    fun recipients_emptyForBlankInput() {
+        assertTrue(parseZaloRecipients(null).isEmpty())
+        assertTrue(parseZaloRecipients("").isEmpty())
+        assertTrue(parseZaloRecipients("   ").isEmpty())
+    }
 }

@@ -144,9 +144,19 @@
     <!-- ===== Hidden developer page: Zalo Bot alert channel ===== -->
     <string name="hidden_section_zalo">ZALO BOT</string>
     <string name="hidden_zalo_title">Gửi cảnh báo tới Zalo</string>
-    <string name="hidden_zalo_summary">Khi bật, mỗi kết quả rủi ro cao sẽ được gửi tới Zalo qua Bot Token và Chat ID bên dưới.</string>
+    <string name="hidden_zalo_summary">Khi bật, mỗi kết quả rủi ro cao sẽ được gửi tới tất cả người nhận bên dưới qua Bot Token. Một bot có thể gửi cho nhiều người và nhóm.</string>
     <string name="hidden_zalo_token_hint">Bot Token (vd: 123456789:abc…)</string>
     <string name="hidden_zalo_chat_id_hint">Chat ID người nhận</string>
+    <string name="hidden_zalo_add_id_hint">Thêm Chat ID thủ công</string>
+    <string name="btn_zalo_add_id">Thêm</string>
+    <string name="hidden_zalo_recipients_empty">Chưa có người nhận. Nhấn "Lấy Chat ID" sau khi nhắn cho bot, hoặc thêm thủ công.</string>
+    <string name="btn_zalo_clear_recipients">Xóa tất cả người nhận</string>
+    <string name="btn_zalo_remove_recipient">Xóa</string>
+    <string name="zalo_recipient_group">Nhóm: %1$s</string>
+    <string name="zalo_recipient_private">Cá nhân: %1$s</string>
+    <string name="zalo_add_invalid">Chat ID không được để trống.</string>
+    <string name="zalo_test_sent_many">Đã gửi tin nhắn thử tới %1$d người nhận</string>
+    <string name="zalo_test_partial">Đã gửi %1$d/%2$d người nhận. Kiểm tra lại Chat ID và kết nối mạng.</string>
     <string name="btn_zalo_test">Gửi thử Zalo</string>
     <string name="hidden_zalo_on">Đã bật gửi cảnh báo tới Zalo</string>
     <string name="hidden_zalo_off">Đã tắt gửi cảnh báo tới Zalo</string>

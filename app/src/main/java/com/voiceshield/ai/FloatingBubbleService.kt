@@ -2322,13 +2322,14 @@ class FloatingBubbleService : Service() {
      */
     private fun notifyZalo() {
         val token = ProtectionState.getZaloToken(this)
-        val chatId = ProtectionState.getZaloChatId(this)
         if (!ProtectionState.isZaloEnabled(this)) return
-        if (!isValidZaloBotToken(token) || chatId.isBlank()) return
+        if (!isValidZaloBotToken(token)) return
+        val recipients = ProtectionState.getZaloRecipients(this)
+        if (recipients.isEmpty()) return
         val alert = currentDiscordAlert()
-        ZaloNotifier.send(
+        ZaloNotifier.sendAll(
             token,
-            chatId,
+            recipients,
             zaloAlertMessage(alert.userName, ALERT_RISK_LABEL, alert.timestampMs, alert.device)
         )
     }

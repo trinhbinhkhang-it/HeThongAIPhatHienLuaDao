@@ -71,6 +71,83 @@ fun zaloExtractChatId(responseBody: String): String? =
         ?.groupValues
         ?.getOrNull(1)
 
+/** A chat a Zalo bot can message: a person (PRIVATE) or a group (GROUP, Beta). */
+data class ZaloChat(
+    val chatId: String,
+    val isGroup: Boolean,
+    /** Sender's display name, used as a friendly label; falls back to the id. */
+    val name: String
+)
+
+/**
+ * One configured recipient of the Zalo alert. [isGroup] is only for display — a group is
+ * delivered to exactly like a person, via its `chat.id`.
+ */
+data class ZaloRecipient(
+    val chatId: String,
+    val label: String,
+    val isGroup: Boolean = false
+)
+
+/**
+ * Extracts the full chat from a `getUpdates`/webhook body: the id, whether it is a group, and
+ * the sender's display name. Tolerant regexes for the same reason as [zaloExtractChatId] —
+ * the response shape follows the webhook sample but the platform may return a single object or
+ * an array, and no JSON dependency is pulled in.
+ */
+fun zaloExtractChat(responseBody: String): ZaloChat? {
+    val id = zaloExtractChatId(responseBody) ?: return null
+    val type = Regex("\"chat_type\"\\s*:\\s*\"([^\"]+)\"")
+        .find(responseBody)?.groupValues?.getOrNull(1)
+    val name = Regex("\"display_name\"\\s*:\\s*\"([^\"]*)\"")
+        .find(responseBody)?.groupValues?.getOrNull(1)
+    return ZaloChat(
+        chatId = id,
+        isGroup = type.equals("GROUP", ignoreCase = true),
+        name = name?.takeIf { it.isNotBlank() } ?: id
+    )
+}
+
+// ── Recipient list (de)serialisation — pure so the storage format is unit-tested ──
+// One recipient per line: `<chatId>|GROUP|PRIVATE|<label>`. The label is last so it may contain
+// almost anything; it is stripped of `|` and newlines on write so the format can never corrupt.
+
+/** Parses the stored recipient list, dropping malformed lines and de-duplicating by chat id. */
+fun parseZaloRecipients(raw: String?): List<ZaloRecipient> {
+    if (raw.isNullOrBlank()) return emptyList()
+    return raw.lineSequence()
+        .mapNotNull { line ->
+            val parts = line.split('|', limit = 3)
+            if (parts.size < 2) return@mapNotNull null
+            val id = parts[0].trim()
+            if (id.isEmpty()) return@mapNotNull null
+            val label = parts.getOrNull(2)?.trim().orEmpty().ifEmpty { id }
+            ZaloRecipient(id, label, parts[1].trim().equals("GROUP", ignoreCase = true))
+        }
+        .distinctBy { it.chatId }
+        .toList()
+}
+
+/** Serialises the recipient list for storage. */
+fun serializeZaloRecipients(recipients: List<ZaloRecipient>): String =
+    recipients.joinToString("\n") { r ->
+        val safeLabel = r.label.replace('|', '/').replace('\n', ' ').replace('\r', ' ')
+        "${r.chatId}|${if (r.isGroup) "GROUP" else "PRIVATE"}|$safeLabel"
+    }
+
+/** Adds [recipient], replacing any existing entry with the same chat id (de-duplicating). */
+fun addZaloRecipient(
+    recipients: List<ZaloRecipient>,
+    recipient: ZaloRecipient
+): List<ZaloRecipient> = recipients.filterNot { it.chatId == recipient.chatId } + recipient
+
+/** Removes the recipient with [chatId], if present. */
+fun removeZaloRecipient(
+    recipients: List<ZaloRecipient>,
+    chatId: String
+): List<ZaloRecipient> = recipients.filterNot { it.chatId == chatId }
+
+
 
 /**
  * Sends a text message through the Zalo Bot Platform — no third-party dependency.
@@ -87,6 +164,9 @@ object ZaloNotifier {
 
     /** How many polls the chat-id helper makes before giving up (~attempts × POLL_SECONDS). */
     private const val DEFAULT_POLL_ATTEMPTS = 4
+
+    /** Pause between consecutive sends in [sendAll], to stay clear of Zalo's rate limit. */
+    private const val SEND_PACING_MS = 350L
 
     private val executor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "zalo-bot").apply { isDaemon = true }
@@ -107,34 +187,34 @@ object ZaloNotifier {
      *
      * Returns null with `httpCode == -1` only when the request never landed at all.
      */
-    fun fetchLatestChatId(
+    fun fetchLatestChat(
         token: String,
         attempts: Int = DEFAULT_POLL_ATTEMPTS,
-        onResult: (chatId: String?, httpCode: Int) -> Unit = { _, _ -> }
+        onResult: (chat: ZaloChat?, httpCode: Int) -> Unit = { _, _ -> }
     ) {
         executor.execute {
             var code = -1
-            var chatId: String? = null
+            var chat: ZaloChat? = null
             var i = 0
-            while (chatId == null && i < attempts) {
-                val (found, pollCode) = pollForChatIdOnce(token)
+            while (chat == null && i < attempts) {
+                val (found, pollCode) = pollForChatOnce(token)
                 code = pollCode
-                chatId = found
+                chat = found
                 i++
             }
-            val finalChatId = chatId
+            val finalChat = chat
             val finalCode = code
-            mainHandler.post { onResult(finalChatId, finalCode) }
+            mainHandler.post { onResult(finalChat, finalCode) }
         }
     }
 
     /**
-     * One `getUpdates` call. Returns `(chatId, httpCode)`; `chatId` is null when no message
-     * arrived within the poll window.
+     * One `getUpdates` call. Returns `(chat, httpCode)`; `chat` is null when no message arrived
+     * within the poll window.
      */
-    private fun pollForChatIdOnce(token: String): Pair<String?, Int> {
+    private fun pollForChatOnce(token: String): Pair<ZaloChat?, Int> {
         var code = -1
-        var chatId: String? = null
+        var chat: ZaloChat? = null
         try {
             val url = URL("$ZALO_API_BASE/bot${token.trim()}/getUpdates")
             val connection = url.openConnection() as HttpURLConnection
@@ -156,16 +236,16 @@ object ZaloNotifier {
                     (if (code in 200..299) connection.inputStream else connection.errorStream)
                         ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
                 }.getOrNull().orEmpty()
-                chatId = zaloExtractChatId(responseBody)
-                Log.i(TAG, "getUpdates -> HTTP $code chatIdFound=${chatId != null}")
+                chat = zaloExtractChat(responseBody)
+                Log.i(TAG, "getUpdates -> HTTP $code chatFound=${chat != null}")
             } finally {
                 connection.disconnect()
             }
         } catch (t: Throwable) {
             Log.e(TAG, "getUpdates failed", t)
-            chatId = null
+            chat = null
         }
-        return chatId to code
+        return chat to code
     }
 
     /** @param onResult `(success, httpCode)`; `httpCode` is -1 when the request never landed. */
@@ -176,39 +256,67 @@ object ZaloNotifier {
         onResult: (Boolean, Int) -> Unit = { _, _ -> }
     ) {
         executor.execute {
-            var code = -1
-            var ok = false
-            try {
-                val url = URL("$ZALO_API_BASE/bot${token.trim()}/sendMessage")
-                val connection = url.openConnection() as HttpURLConnection
-                try {
-                    connection.requestMethod = "POST"
-                    connection.doOutput = true
-                    connection.connectTimeout = 10_000
-                    connection.readTimeout = 10_000
-                    connection.useCaches = false
-                    connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                    connection.setRequestProperty("User-Agent", "SafeCallsCT")
-                    val body = zaloSendPayload(chatId, text).toByteArray(Charsets.UTF_8)
-                    connection.setFixedLengthStreamingMode(body.size)
-                    connection.outputStream.use { it.write(body) }
-                    code = connection.responseCode
-                    val responseBody = runCatching {
-                        (if (code in 200..299) connection.inputStream else connection.errorStream)
-                            ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-                    }.getOrNull().orEmpty()
-                    ok = code in 200..299 && Regex("\"ok\"\\s*:\\s*true").containsMatchIn(responseBody)
-                    Log.i(TAG, "sendMessage -> HTTP $code ok=$ok")
-                } finally {
-                    connection.disconnect()
-                }
-            } catch (t: Throwable) {
-                Log.e(TAG, "sendMessage failed", t)
-                ok = false
-            }
-            val finalOk = ok
-            val finalCode = code
-            mainHandler.post { onResult(finalOk, finalCode) }
+            val (ok, code) = sendMessageOnce(token, chatId, text)
+            mainHandler.post { onResult(ok, code) }
         }
+    }
+
+    /**
+     * Sends [text] to every recipient in turn — one bot token, many chats. A short pause between
+     * sends keeps a burst from tripping Zalo's rate limit. Reports how many landed so the UI can
+     * say "2/3".
+     */
+    fun sendAll(
+        token: String,
+        recipients: List<ZaloRecipient>,
+        text: String,
+        onResult: (sent: Int, total: Int) -> Unit = { _, _ -> }
+    ) {
+        executor.execute {
+            var sent = 0
+            recipients.forEachIndexed { index, recipient ->
+                if (index > 0) runCatching { Thread.sleep(SEND_PACING_MS) }
+                val (ok, _) = sendMessageOnce(token, recipient.chatId, text)
+                if (ok) sent++
+            }
+            val finalSent = sent
+            val total = recipients.size
+            mainHandler.post { onResult(finalSent, total) }
+        }
+    }
+
+    /** Blocking single `sendMessage`. Returns `(ok, httpCode)`; runs on the executor thread. */
+    private fun sendMessageOnce(token: String, chatId: String, text: String): Pair<Boolean, Int> {
+        var code = -1
+        var ok = false
+        try {
+            val url = URL("$ZALO_API_BASE/bot${token.trim()}/sendMessage")
+            val connection = url.openConnection() as HttpURLConnection
+            try {
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.connectTimeout = 10_000
+                connection.readTimeout = 10_000
+                connection.useCaches = false
+                connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                connection.setRequestProperty("User-Agent", "SafeCallsCT")
+                val body = zaloSendPayload(chatId, text).toByteArray(Charsets.UTF_8)
+                connection.setFixedLengthStreamingMode(body.size)
+                connection.outputStream.use { it.write(body) }
+                code = connection.responseCode
+                val responseBody = runCatching {
+                    (if (code in 200..299) connection.inputStream else connection.errorStream)
+                        ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                }.getOrNull().orEmpty()
+                ok = code in 200..299 && Regex("\"ok\"\\s*:\\s*true").containsMatchIn(responseBody)
+                Log.i(TAG, "sendMessage -> HTTP $code ok=$ok")
+            } finally {
+                connection.disconnect()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "sendMessage failed", t)
+            ok = false
+        }
+        return ok to code
     }
 }

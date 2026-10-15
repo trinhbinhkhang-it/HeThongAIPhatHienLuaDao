@@ -168,7 +168,9 @@ object ProtectionState {
 
     // Hidden developer page — Zalo Bot alert channel.
     private const val KEY_ZALO_TOKEN = "zalo_token"
+    /** Legacy single recipient, kept only for migration into [KEY_ZALO_RECIPIENTS]. */
     private const val KEY_ZALO_CHAT_ID = "zalo_chat_id"
+    private const val KEY_ZALO_RECIPIENTS = "zalo_recipients"
     private const val KEY_ZALO_ENABLED = "zalo_enabled"
 
     // Personal-information page.
@@ -328,11 +330,26 @@ object ProtectionState {
         prefs(context).edit().putString(KEY_ZALO_TOKEN, token.trim()).apply()
     }
 
-    fun getZaloChatId(context: Context): String =
-        prefs(context).getString(KEY_ZALO_CHAT_ID, "").orEmpty()
+    /**
+     * Hidden "ZALO BOT" recipient list — every chat the alert is sent to. One bot token can
+     * address many chats; a group is just another `chat_id`, so groups and individuals share
+     * this list.
+     *
+     * Reads the recipient list; when it is empty it falls back to the legacy single
+     * `zalo_chat_id` so an existing configuration keeps working after the upgrade.
+     */
+    fun getZaloRecipients(context: Context): List<ZaloRecipient> {
+        val stored = parseZaloRecipients(prefs(context).getString(KEY_ZALO_RECIPIENTS, null))
+        if (stored.isNotEmpty()) return stored
+        val legacy = prefs(context).getString(KEY_ZALO_CHAT_ID, "").orEmpty().trim()
+        return if (legacy.isNotEmpty()) listOf(ZaloRecipient(legacy, legacy)) else emptyList()
+    }
 
-    fun setZaloChatId(context: Context, chatId: String) {
-        prefs(context).edit().putString(KEY_ZALO_CHAT_ID, chatId.trim()).apply()
+    /** Persists the recipient list. */
+    fun setZaloRecipients(context: Context, recipients: List<ZaloRecipient>) {
+        prefs(context).edit()
+            .putString(KEY_ZALO_RECIPIENTS, serializeZaloRecipients(recipients))
+            .apply()
     }
 
     /** The hidden switch that arms the Zalo channel. Defaults to **off**. */
@@ -343,11 +360,12 @@ object ProtectionState {
         prefs(context).edit().putBoolean(KEY_ZALO_ENABLED, enabled).apply()
     }
 
-    /** Restores the hidden Zalo channel to its default (off, no token, no chat id). */
+    /** Restores the hidden Zalo channel to its default (off, no token, no recipients). */
     fun resetZalo(context: Context) {
         prefs(context).edit()
             .putBoolean(KEY_ZALO_ENABLED, false)
             .putString(KEY_ZALO_TOKEN, "")
+            .putString(KEY_ZALO_RECIPIENTS, "")
             .putString(KEY_ZALO_CHAT_ID, "")
             .apply()
     }
