@@ -167,7 +167,8 @@
     <string name="zalo_fetch_invalid_token">Cần Bot Token hợp lệ trước khi lấy Chat ID.</string>
     <string name="zalo_fetch_searching">Đang chờ tin nhắn… hãy nhắn cho bot trên Zalo ngay bây giờ.</string>
     <string name="zalo_fetch_found">Đã lấy Chat ID: %1$s</string>
-    <string name="zalo_fetch_none">Không thấy tin nhắn nào. Hãy nhắn cho bot một tin rồi thử lại.</string>
+    <string name="zalo_fetch_none">Không thấy tin nhắn nào. Chat riêng: hãy nhắn cho bot. Trong nhóm: hãy @nhắc tên bot hoặc trả lời một tin nhắn của bot — bot chỉ nhận sự kiện khi được nhắc trong nhóm.</string>
+    <string name="hidden_zalo_group_note">Trong nhóm, bot chỉ nhận tin khi bạn @nhắc tên bot hoặc trả lời tin nhắn của bot (Zalo giới hạn như vậy). Hãy làm điều đó rồi bấm \"Lấy Chat ID\", hoặc dán Chat ID của nhóm vào ô bên dưới.</string>
     <string name="zalo_fetch_network">Không kết nối được tới Zalo. Kiểm tra mạng và thử lại.</string>
 
     <!-- ===== Scan-mode change feedback (§7) ===== -->
