@@ -701,6 +701,9 @@ class FloatingBubbleService : Service() {
                 // closing the pop-up (A1) must not walk it back.
                 resultDisplayed = true
                 publishDetectionStatus()
+                // "Result is for reference only" disclaimer, once per completed detection in
+                // both Safe and Warning modes. Content + on/off come from the hidden page.
+                showResultDisclaimer()
             }
         }
     }
@@ -1445,6 +1448,20 @@ class FloatingBubbleService : Service() {
             Toast.LENGTH_SHORT
         ).show()
         if (feedbackUsesVibration(feedback)) vibrateGently()
+    }
+
+    /**
+     * The "result is for reference only" disclaimer, shown once per completed detection.
+     *
+     * Text and on/off are read from the hidden developer page at display time, so a change
+     * made there applies to the very next scan with no listener. A blank or disabled
+     * disclaimer simply shows nothing.
+     */
+    private fun showResultDisclaimer() {
+        if (!ProtectionState.isResultDisclaimerEnabled(this)) return
+        val text = ProtectionState.getResultDisclaimer(this).trim()
+        if (text.isEmpty()) return
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
     }
 
     /** Human-readable name of a scan mode, for the §7 feedback toast. */

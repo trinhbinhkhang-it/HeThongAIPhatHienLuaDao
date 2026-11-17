@@ -105,6 +105,293 @@
                 android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
                 android:textColor="@color/text_secondary" />
 
+            <!-- ===== Discord webhook alert mirror =====
+                 The URL a Warning-mode high-risk result is POSTed to as a rich embed
+                 (metadata only). The switch arms it; "Test" sends a sample embed to the
+                 URL currently in the field, even while the switch is off. -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_discord"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_sm">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hidden_discord_title"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xxs"
+                        android:text="@string/hidden_discord_summary"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_discord_enabled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:contentDescription="@string/hidden_discord_title" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:hint="@string/hidden_discord_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_discord_webhook"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionDone"
+                    android:inputType="textUri"
+                    android:maxLines="2"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_discord_test"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_discord_test"
+                android:textColor="@color/text_secondary" />
+
+            <!-- Screenshot option: only shown while the Discord mirror is armed. -->
+            <LinearLayout
+                android:id="@+id/discord_screenshot_row"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_lg"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_sm"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hidden_discord_screenshot_title"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xxs"
+                        android:text="@string/hidden_discord_screenshot_summary"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_discord_screenshot"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:contentDescription="@string/hidden_discord_screenshot_title" />
+            </LinearLayout>
+
+            <!-- ===== Zalo Bot alert channel =====
+                 Outbound Zalo is Bot Token + chat_id (there is no webhook URL for sending).
+                 The switch arms it; "Test" sends a sample message to the entered token/id. -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/hidden_section_zalo"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.Label"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingTop="@dimen/space_sm"
+                android:paddingBottom="@dimen/space_sm">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/hidden_zalo_title"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xxs"
+                        android:text="@string/hidden_zalo_summary"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                        android:textColor="@color/text_secondary" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_zalo_enabled"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:contentDescription="@string/hidden_zalo_title" />
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:hint="@string/hidden_zalo_token_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/input_zalo_token"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionNext"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                    android:textColor="@color/text_primary" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_zalo_fetch_id"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_zalo_fetch_id"
+                android:textColor="@color/text_secondary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:text="@string/hidden_zalo_group_note"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:baselineAligned="false"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="@string/hidden_zalo_add_id_hint">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/input_zalo_add_id"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:imeOptions="actionDone"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.SafeCallsCT.Body"
+                        android:textColor="@color/text_primary" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btn_zalo_add_id"
+                    style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                    android:layout_width="wrap_content"
+                    android:layout_height="@dimen/button_height_pill"
+                    android:layout_marginStart="@dimen/space_md"
+                    android:text="@string/btn_zalo_add_id"
+                    android:textColor="@color/text_secondary" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/zalo_recipients_empty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/hidden_zalo_recipients_empty"
+                android:textAppearance="@style/TextAppearance.SafeCallsCT.BodySmall"
+                android:textColor="@color/text_secondary" />
+
+            <LinearLayout
+                android:id="@+id/zalo_recipient_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_sm"
+                android:orientation="vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_zalo_clear_recipients"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_zalo_clear_recipients"
+                android:textColor="@color/text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_zalo_test"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_md"
+                android:text="@string/btn_zalo_test"
+                android:textColor="@color/text_secondary" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_profile_reset"
+                style="@style/Widget.SafeCallsCT.Button.PillOutline"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/button_height_pill"
+                android:layout_marginTop="@dimen/space_xl"
+                android:text="@string/btn_profile_reset"
+                android:textColor="@color/text_secondary" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_profile_save"
                 style="@style/Widget.SafeCallsCT.Button.Pill"

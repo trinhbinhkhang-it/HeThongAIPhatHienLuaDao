@@ -88,7 +88,7 @@
     <string name="btn_hidden_reset">Khôi phục mặc định</string>
     <string name="btn_hidden_back">Quay lại</string>
     <string name="hidden_saved">Đã lưu khoảng thời gian quét</string>
-    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây, nhận diện khuôn mặt tắt, mở chế độ quét bằng một chạm, nhấn giữ 1 giây, đổi chế độ tự động tắt, phản hồi tắt</string>
+    <string name="hidden_reset">Đã khôi phục mặc định: An Toàn 4–7 giây, Cảnh Báo 5–8 giây, nhận diện khuôn mặt bật, mở chế độ quét bằng một chạm, nhấn giữ 1 giây, đổi chế độ tự động tắt, phản hồi tắt</string>
 
     <!-- ===== Hidden developer page: face-recognition gate ===== -->
     <string name="hidden_section_detection">NHẬN DIỆN KHUÔN MẶT</string>
@@ -118,6 +118,15 @@
     <string name="hidden_interaction_note">Bốn mục trên có hiệu lực ngay khi chọn và được lưu lại sau khi khởi động lại ứng dụng. Chế độ quét đang chọn không bị thay đổi.</string>
     <string name="hidden_interaction_saved">Đã lưu cài đặt tương tác</string>
 
+    <!-- ===== Hidden developer page: result disclaimer toast ===== -->
+    <string name="hidden_section_disclaimer">THÔNG BÁO KẾT QUẢ</string>
+    <string name="hidden_disclaimer_title">Thông báo sau khi nhận diện</string>
+    <string name="hidden_disclaimer_summary">Bật để hiện một thông báo ngắn mỗi khi nhận diện xong ở Chế độ An Toàn và Chế độ Cảnh Báo. Nội dung bên dưới có thể chỉnh sửa.</string>
+    <string name="hidden_disclaimer_hint">Kết quả nhận diện chỉ mang tính chất tham khảo</string>
+    <string name="hidden_disclaimer_on">Đã bật thông báo kết quả nhận diện</string>
+    <string name="hidden_disclaimer_off">Đã tắt thông báo kết quả nhận diện</string>
+    <string name="result_disclaimer_default">Kết quả nhận diện chỉ mang tính chất tham khảo</string>
+
     <!-- ===== Hidden developer page: Discord webhook alert mirror ===== -->
     <string name="hidden_section_discord">DISCORD WEBHOOK</string>
     <string name="hidden_discord_title">Gửi cảnh báo tới Discord</string>
@@ -140,6 +149,8 @@
     <string name="btn_profile_save">Lưu thông tin</string>
     <string name="btn_profile_back">Quay lại</string>
     <string name="profile_saved">Đã lưu thông tin cá nhân</string>
+    <string name="btn_profile_reset">Khôi phục mặc định</string>
+    <string name="profile_reset">Đã khôi phục mặc định thông tin cá nhân và cảnh báo</string>
 
     <!-- ===== Hidden developer page: Zalo Bot alert channel ===== -->
     <string name="hidden_section_zalo">ZALO BOT</string>

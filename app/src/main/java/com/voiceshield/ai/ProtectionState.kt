@@ -161,6 +161,10 @@ object ProtectionState {
     private const val KEY_WARNING_MAX = "warning_interval_max_seconds"
     private const val KEY_FACE_GATE = "face_gate_enabled"
 
+    // Hidden developer page — the post-detection disclaimer toast.
+    private const val KEY_RESULT_DISCLAIMER = "result_disclaimer"
+    private const val KEY_RESULT_DISCLAIMER_ENABLED = "result_disclaimer_enabled"
+
     // Hidden developer page — Discord alert mirror.
     private const val KEY_DISCORD_WEBHOOK = "discord_webhook"
     private const val KEY_DISCORD_ENABLED = "discord_enabled"
@@ -268,13 +272,13 @@ object ProtectionState {
     /**
      * The hidden developer option "Chế độ nhận diện khuôn mặt".
      *
-     * Defaults to **off**, which is the behaviour enable_floating_bubble.md specifies: a
-     * double-tap arms the random popup window immediately. When it is on, the scan waits
-     * for a real human face to appear on screen before that window — and therefore
-     * before any warning — can start. The rule itself lives in [shouldArmScanTimer].
+     * Defaults to **on** so a freshly installed app waits for a real face before it can
+     * warn. When it is on, the scan waits for a real human face to appear on screen before
+     * the random popup window — and therefore before any warning — can start. The rule
+     * itself lives in [shouldArmScanTimer].
      */
     fun isFaceGateEnabled(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_FACE_GATE, false)
+        prefs(context).getBoolean(KEY_FACE_GATE, true)
 
     /** Persists the face gate and tells a running scan to follow the new setting. */
     fun setFaceGateEnabled(context: Context, enabled: Boolean) {
@@ -284,6 +288,43 @@ object ProtectionState {
                 .setPackage(context.packageName)
                 .putExtra(EXTRA_FACE_GATE, enabled)
         )
+    }
+
+    /**
+     * Hidden developer option — whether the short "result is for reference only" toast is
+     * shown after each Safe-/Warning-mode detection. Defaults to **on** so the disclaimer
+     * appears out of the box; the text it shows is [getResultDisclaimer].
+     */
+    fun isResultDisclaimerEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_RESULT_DISCLAIMER_ENABLED, true)
+
+    /** Persists the disclaimer switch. No broadcast: the bubble reads it at display time. */
+    fun setResultDisclaimerEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_RESULT_DISCLAIMER_ENABLED, enabled).apply()
+    }
+
+    /**
+     * The text shown by the post-detection disclaimer toast.
+     *
+     * Falls back to [R.string.result_disclaimer_default] when the developer has never edited
+     * it. A deliberately-emptied value is returned as-is (blank), and the bubble then shows
+     * no toast — so clearing the field is a second way to suppress it.
+     */
+    fun getResultDisclaimer(context: Context): String =
+        prefs(context).getString(KEY_RESULT_DISCLAIMER, null)
+            ?: context.getString(R.string.result_disclaimer_default)
+
+    /** Persists the disclaimer text. Blank clears it (and therefore the toast). */
+    fun setResultDisclaimer(context: Context, text: String) {
+        prefs(context).edit().putString(KEY_RESULT_DISCLAIMER, text.trim()).apply()
+    }
+
+    /** Restores the disclaimer to its default: switch on, default text. */
+    fun resetResultDisclaimer(context: Context) {
+        prefs(context).edit()
+            .putBoolean(KEY_RESULT_DISCLAIMER_ENABLED, true)
+            .remove(KEY_RESULT_DISCLAIMER)
+            .apply()
     }
 
     /**
